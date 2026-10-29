@@ -1,0 +1,30 @@
+user: msh.alam1110@gmail.com:Msque$27
+
+
+test run command: npm run dev
+
+
+
+//start
+npm install firebase
+
+
+
+
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyDLaBxIujHEQqR-EnfUNXJJK7rb5V3FejM",
+  authDomain: "mosque-waqf-portal.firebaseapp.com",
+  projectId: "mosque-waqf-portal",
+  storageBucket: "mosque-waqf-portal.firebasestorage.app",
+  messagingSenderId: "278454903201",
+  appId: "1:278454903201:web:e509372dcdb8fd2b7c6be0"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
