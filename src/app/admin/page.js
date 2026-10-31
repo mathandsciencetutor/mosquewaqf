@@ -23,8 +23,33 @@ import {
   Phone,
   Printer,
   FileText,
-  X
+  X,
+  Award
 } from 'lucide-react';
+
+// ইংরেজি সংখ্যাকে বাংলা সংখ্যায় রূপান্তর
+function toBengaliNumber(num) {
+  if (num === undefined || num === null || num === '') return '';
+  const banglaDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+  return num.toString().replace(/\d/g, (d) => banglaDigits[d]);
+}
+
+// বাংলাদেশি নিয়মে টাকার কমা ও বাংলা সংখ্যায় রূপান্তর (১,০০,০০০ / ১,০০,০০,০০০)
+function toBengaliCurrency(amount) {
+  if (amount === undefined || amount === null || amount === '') return '০';
+  const banglaDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+  const n = Number(amount) || 0;
+  const formatted = n.toLocaleString('en-IN');
+  return formatted.replace(/\d/g, (d) => banglaDigits[d]);
+}
+
+// বাংলা সংখ্যার জন্য ইনলাইন সেফটি স্টাইল (১ এর নিচের অংশ কাটা রোধ করতে)
+const bnSafeStyle = {
+  fontFamily: "'Segoe UI', 'Noto Sans Bengali', sans-serif",
+  display: 'inline-block',
+  lineHeight: '1.6',
+  paddingBottom: '3px'
+};
 
 export default function AdminDashboard() {
   const [user, setUser] = useState(null);
@@ -33,7 +58,6 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   
-  // নতুন ডোনার ফর্ম
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -43,13 +67,11 @@ export default function AdminDashboard() {
     category: 'Confirmed',
   });
 
-  // কিস্তি মডাল স্টেট
   const [selectedDonor, setSelectedDonor] = useState(null);
   const [installmentAmount, setInstallmentAmount] = useState('');
   const [installmentNote, setInstallmentNote] = useState('');
   const [installmentDate, setInstallmentDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // প্রিন্ট কন্ট্রোল স্টেট ('receipt' অথবা 'report')
   const [historyDonor, setHistoryDonor] = useState(null);
   const [showCategoryPrintModal, setShowCategoryPrintModal] = useState(false);
   const [printCategory, setPrintCategory] = useState('ALL');
@@ -84,29 +106,34 @@ export default function AdminDashboard() {
   const handleAddDonor = async (e) => {
     e.preventDefault();
     try {
-      const pledged = Number(formData.pledgedAmount) || 0;
-      const initial = Number(formData.initialPayment) || 0;
+      let pledged = Number(formData.pledgedAmount) || 0;
+      let initial = Number(formData.initialPayment) || 0;
       
       let finalCategory = formData.category;
-      if (initial >= pledged && pledged > 0) {
+      
+      if (formData.category === 'OneTimeCash') {
+        if (initial === 0 && pledged > 0) initial = pledged;
+        if (pledged === 0 && initial > 0) pledged = initial;
+      } else if (initial >= pledged && pledged > 0) {
         finalCategory = 'Paid';
       }
 
       const nextSerial = 1001 + donors.length;
       const generatedCode = `WQF-${nextSerial}`;
+      const banglaPhone = toBengaliNumber(formData.phone.trim());
 
       const newDonor = {
         donorId: generatedCode,
         name: formData.name,
-        phone: formData.phone,
+        phone: banglaPhone,
         address: formData.address,
         pledgedAmount: pledged,
         paidAmount: initial,
         category: finalCategory,
         installments: initial > 0 ? [{
           amount: initial,
-          date: new Date().toISOString(),
-          note: 'প্রারম্ভিক অনুদান'
+          date: new Date().toISOString().split('T')[0],
+          note: formData.category === 'OneTimeCash' ? 'এককালীন নগদ আদায়' : 'প্রারম্ভিক অনুদান'
         }] : [],
         createdAt: serverTimestamp()
       };
@@ -135,7 +162,7 @@ export default function AdminDashboard() {
       const newPaidTotal = (selectedDonor.paidAmount || 0) + amount;
       
       let newCategory = selectedDonor.category;
-      if (newPaidTotal >= selectedDonor.pledgedAmount) {
+      if (newPaidTotal >= selectedDonor.pledgedAmount && selectedDonor.category !== 'OneTimeCash') {
         newCategory = 'Paid';
       } else if (selectedDonor.category === 'Prospective' && newPaidTotal > 0) {
         newCategory = 'Confirmed';
@@ -162,7 +189,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // একক ডোনার রসিদ প্রিন্ট
   const triggerPrintReceipt = (donor) => {
     setHistoryDonor(donor);
     setActivePrintView('receipt');
@@ -171,7 +197,6 @@ export default function AdminDashboard() {
     }, 200);
   };
 
-  // সম্পূর্ণ ক্যাটাগরি তালিকা প্রিন্ট
   const triggerPrintReport = () => {
     setShowCategoryPrintModal(false);
     setActivePrintView('report');
@@ -181,7 +206,17 @@ export default function AdminDashboard() {
   };
 
   const filteredDonors = donors.filter(d => {
-    const matchesCategory = activeTab === 'ALL' || d.category === activeTab;
+    const paid = Number(d.paidAmount || 0);
+
+    let matchesCategory = false;
+    if (activeTab === 'ALL') {
+      matchesCategory = true;
+    } else if (activeTab === 'OneLakhPlus') {
+      matchesCategory = paid >= 100000;
+    } else {
+      matchesCategory = d.category === activeTab;
+    }
+
     const matchesSearch = d.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           d.donorId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           d.phone?.includes(searchTerm);
@@ -189,7 +224,10 @@ export default function AdminDashboard() {
   });
 
   const printReportList = donors.filter(d => {
-    return printCategory === 'ALL' || d.category === printCategory;
+    const paid = Number(d.paidAmount || 0);
+    if (printCategory === 'ALL') return true;
+    if (printCategory === 'OneLakhPlus') return paid >= 100000;
+    return d.category === printCategory;
   });
 
   if (loading) {
@@ -197,64 +235,88 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 pb-12">
+    <div className="min-h-screen bg-slate-50 text-slate-800 pb-12 font-sans">
       {/* টপবার */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm print:hidden">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div>
-            <h1 className="font-bold text-lg md:text-xl text-emerald-800 leading-tight">আব্দুল হাকিম ওয়াকফ স্টেট</h1>
-            <p className="text-xs text-slate-500">জেলা স্কুল রোড জামে মসজিদ হাফিজিয়া মাদ্রাসা</p>
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs print:hidden">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-[10px] sm:text-xs text-emerald-700 leading-tight truncate">
+              জিলা স্কুল রোড জামে মসজিদ ও মাদ্রাসা অধীন
+            </p>
+            <h1 className="font-bold text-xs sm:text-sm md:text-base text-slate-900 leading-tight mt-0.5 truncate">
+              আব্দুল হাকিম ওয়াক্‌ফ এস্টেট
+            </h1>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             <button 
               onClick={() => setShowCategoryPrintModal(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition cursor-pointer"
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition cursor-pointer"
             >
-              <FileText className="w-4 h-4" /> ডোনার রিপোর্ট প্রিন্ট
+              <FileText className="w-3.5 h-3.5" /> 
+              <span className="hidden sm:inline">রিপোর্ট প্রিন্ট</span>
+              <span className="sm:hidden text-[11px]">রিপোর্ট</span>
             </button>
             <button 
               onClick={() => signOut(auth)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-rose-600 hover:bg-rose-50 border border-rose-200 transition cursor-pointer"
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium text-rose-600 hover:bg-rose-50 border border-rose-200 transition cursor-pointer"
             >
-              <LogOut className="w-4 h-4" /> লগআউট
+              <LogOut className="w-3.5 h-3.5" /> 
+              <span className="hidden sm:inline">লগআউট</span>
+              <span className="sm:hidden text-[11px]">লগআউট</span>
             </button>
           </div>
         </div>
       </header>
 
-      {/* মূল অ্যাডমিন স্ক্রিন */}
-      <main className="max-w-7xl mx-auto px-4 mt-6 print:hidden">
-        {/* পরিসংখ্যান কার্ড */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <span className="text-xs font-semibold text-slate-500 uppercase">মোট ডোনার</span>
-            <p className="text-2xl font-bold text-slate-800 mt-1">{donors.length}</p>
-          </div>
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <span className="text-xs font-semibold text-emerald-600 uppercase">পরিশোধিত (Paid)</span>
-            <p className="text-2xl font-bold text-emerald-700 mt-1">
-              {donors.filter(d => d.category === 'Paid').length}
+      {/* মূল স্ক্রিন */}
+      <main className="max-w-7xl mx-auto px-3 sm:px-4 mt-4 sm:mt-6 print:hidden">
+        {/* পরিসংখ্যান কার্ড (১ সংখ্যা ক্লিপিং মুক্ত) */}
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-2 sm:gap-3 mb-4 sm:mb-6">
+          <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase block">মোট ডোনার</span>
+            <p className="text-lg sm:text-xl font-bold text-slate-800 mt-0.5">
+              <span style={bnSafeStyle}>{toBengaliNumber(donors.length)}</span> জন
             </p>
           </div>
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <span className="text-xs font-semibold text-blue-600 uppercase">চলমান (Confirmed)</span>
-            <p className="text-2xl font-bold text-blue-700 mt-1">
-              {donors.filter(d => d.category === 'Confirmed').length}
+          <div className="bg-white p-3 rounded-xl border border-amber-200 shadow-xs bg-amber-50/20">
+            <span className="text-[10px] font-bold text-amber-700 uppercase flex items-center gap-0.5">
+              <Award className="w-3 h-3" /> ১ লক্ষ+
+            </span>
+            <p className="text-lg sm:text-xl font-bold text-amber-800 mt-0.5">
+              <span style={bnSafeStyle}>{toBengaliNumber(donors.filter(d => Number(d.paidAmount || 0) >= 100000).length)}</span> জন
             </p>
           </div>
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <span className="text-xs font-semibold text-amber-600 uppercase">সম্ভাব্য (Prospective)</span>
-            <p className="text-2xl font-bold text-amber-700 mt-1">
-              {donors.filter(d => d.category === 'Prospective').length}
+          <div className="bg-white p-3 rounded-xl border border-emerald-200 shadow-xs">
+            <span className="text-[10px] font-semibold text-emerald-600 uppercase block">এককালীন নগদ</span>
+            <p className="text-lg sm:text-xl font-bold text-emerald-700 mt-0.5">
+              <span style={bnSafeStyle}>{toBengaliNumber(donors.filter(d => d.category === 'OneTimeCash').length)}</span> জন
+            </p>
+          </div>
+          <div className="bg-white p-3 rounded-xl border border-blue-200 shadow-xs">
+            <span className="text-[10px] font-semibold text-blue-600 uppercase block">চলমান (কিস্তি)</span>
+            <p className="text-lg sm:text-xl font-bold text-blue-700 mt-0.5">
+              <span style={bnSafeStyle}>{toBengaliNumber(donors.filter(d => d.category === 'Confirmed').length)}</span> জন
+            </p>
+          </div>
+          <div className="bg-white p-3 rounded-xl border border-teal-200 shadow-xs">
+            <span className="text-[10px] font-semibold text-teal-600 uppercase block">পরিশোধিত</span>
+            <p className="text-lg sm:text-xl font-bold text-teal-700 mt-0.5">
+              <span style={bnSafeStyle}>{toBengaliNumber(donors.filter(d => d.category === 'Paid').length)}</span> জন
+            </p>
+          </div>
+          <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase block">সম্ভাব্য</span>
+            <p className="text-lg sm:text-xl font-bold text-slate-700 mt-0.5">
+              <span style={bnSafeStyle}>{toBengaliNumber(donors.filter(d => d.category === 'Prospective').length)}</span> জন
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* নতুন ডোনার নিবন্ধন ফর্ম */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-fit">
-            <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <PlusCircle className="w-5 h-5 text-emerald-600" /> নতুন ডোনার নিবন্ধন
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+          {/* নিবন্ধন ফর্ম */}
+          <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-xs h-fit">
+            <h2 className="text-sm sm:text-base font-bold text-slate-800 mb-3 sm:mb-4 flex items-center gap-1.5">
+              <PlusCircle className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" /> নতুন ডোনার নিবন্ধন
             </h2>
             <form onSubmit={handleAddDonor} className="space-y-3">
               <div>
@@ -264,7 +326,7 @@ export default function AdminDashboard() {
                   required 
                   value={formData.name}
                   onChange={e => setFormData({...formData, name: e.target.value})}
-                  className="w-full mt-1 px-3 py-2 border rounded-lg text-sm border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  className="w-full mt-1 px-3 py-1.5 sm:py-2 border rounded-lg text-xs sm:text-sm border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none"
                   placeholder="পূর্ণ নাম লিখুন"
                 />
               </div>
@@ -275,9 +337,12 @@ export default function AdminDashboard() {
                   type="text" 
                   required 
                   value={formData.phone}
-                  onChange={e => setFormData({...formData, phone: e.target.value})}
-                  className="w-full mt-1 px-3 py-2 border rounded-lg text-sm border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none"
-                  placeholder="01xxxxxxxxx"
+                  onChange={e => {
+                    const converted = toBengaliNumber(e.target.value);
+                    setFormData({...formData, phone: converted});
+                  }}
+                  className="w-full mt-1 px-3 py-1.5 sm:py-2 border rounded-lg text-xs sm:text-sm border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  placeholder="০১৭১xxxxxxx"
                 />
               </div>
 
@@ -287,51 +352,70 @@ export default function AdminDashboard() {
                   type="text" 
                   value={formData.address}
                   onChange={e => setFormData({...formData, address: e.target.value})}
-                  className="w-full mt-1 px-3 py-2 border rounded-lg text-sm border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  className="w-full mt-1 px-3 py-1.5 sm:py-2 border rounded-lg text-xs sm:text-sm border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none"
                   placeholder="গ্রাম / এলাকা / ঠিকানা"
                 />
               </div>
 
+              <div>
+                <label className="text-xs font-semibold text-slate-600">ক্যাটাগরি নির্ধারণ করুন *</label>
+                <select 
+                  value={formData.category}
+                  onChange={e => {
+                    const cat = e.target.value;
+                    setFormData(prev => ({
+                      ...prev,
+                      category: cat,
+                      pledgedAmount: cat === 'OneTimeCash' ? prev.initialPayment || prev.pledgedAmount : prev.pledgedAmount
+                    }));
+                  }}
+                  className="w-full mt-1 px-3 py-1.5 sm:py-2 border rounded-lg text-xs sm:text-sm border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none bg-white font-medium"
+                >
+                  <option value="Confirmed">চলমান (কিস্তি চলমান)</option>
+                  <option value="OneTimeCash">এককালীন নগদ দাতা (সম্পূর্ণ একবারে পরিশোধ)</option>
+                  <option value="Paid">পরিশোধিত (Paid)</option>
+                  <option value="Prospective">সম্ভাব্য ডোনার (Prospective)</option>
+                </select>
+              </div>
+
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-xs font-semibold text-slate-600">প্রতিশ্রুত অনুদান (৳) *</label>
+                  <label className="text-[11px] font-semibold text-slate-600 block truncate">
+                    {formData.category === 'OneTimeCash' ? 'মোট দান (৳) *' : 'প্রতিশ্রুতি (৳) *'}
+                  </label>
                   <input 
                     type="number" 
                     required 
                     value={formData.pledgedAmount}
-                    onChange={e => setFormData({...formData, pledgedAmount: e.target.value})}
-                    className="w-full mt-1 px-3 py-2 border rounded-lg text-sm border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none"
-                    placeholder="যেমন: 50000"
+                    onChange={e => {
+                      const val = e.target.value;
+                      setFormData(prev => ({
+                        ...prev,
+                        pledgedAmount: val,
+                        initialPayment: prev.category === 'OneTimeCash' ? val : prev.initialPayment
+                      }));
+                    }}
+                    className="w-full mt-1 px-2.5 py-1.5 sm:py-2 border rounded-lg text-xs sm:text-sm border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none"
+                    placeholder="50000"
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-600">প্রাথমিক জমা (৳)</label>
+                  <label className="text-[11px] font-semibold text-slate-600 block truncate">
+                    {formData.category === 'OneTimeCash' ? 'নগদ জমা (৳)' : 'প্রাথমিক জমা (৳)'}
+                  </label>
                   <input 
                     type="number" 
                     value={formData.initialPayment}
                     onChange={e => setFormData({...formData, initialPayment: e.target.value})}
-                    className="w-full mt-1 px-3 py-2 border rounded-lg text-sm border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full mt-1 px-2.5 py-1.5 sm:py-2 border rounded-lg text-xs sm:text-sm border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none"
                     placeholder="0"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-600">ক্যাটাগরি</label>
-                <select 
-                  value={formData.category}
-                  onChange={e => setFormData({...formData, category: e.target.value})}
-                  className="w-full mt-1 px-3 py-2 border rounded-lg text-sm border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none bg-white font-medium"
-                >
-                  <option value="Confirmed">Confirmed (নিশ্চিত / কিস্তি চলমান)</option>
-                  <option value="Prospective">Prospective (সম্ভাব্য ডোনার)</option>
-                  <option value="Paid">Paid (সম্পূর্ণ পরিশোধিত)</option>
-                </select>
-              </div>
-
               <button 
                 type="submit" 
-                className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5 rounded-lg text-sm transition shadow cursor-pointer"
+                className="w-full mt-2 sm:mt-4 bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 rounded-lg text-xs sm:text-sm transition shadow-xs cursor-pointer"
               >
                 নিবন্ধন সম্পন্ন করুন
               </button>
@@ -339,113 +423,143 @@ export default function AdminDashboard() {
           </div>
 
           {/* ডোনার তালিকা */}
-          <div className="lg:col-span-2 space-y-4">
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-3 justify-between items-center">
-              <div className="relative w-full sm:w-64">
-                <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+          <div className="lg:col-span-2 space-y-3 sm:space-y-4">
+            <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col gap-2.5">
+              <div className="relative w-full">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
                 <input 
                   type="text" 
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
-                  placeholder="নাম, আইডি বা ফোন দিয়ে খুঁজুন..."
-                  className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  placeholder="নাম, আইডি বা ফোন দিয়ে খুঁজুন..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs sm:text-sm rounded-lg border border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none"
                 />
               </div>
 
-              <div className="flex gap-1.5 overflow-x-auto w-full sm:w-auto">
-                {['ALL', 'Confirmed', 'Prospective', 'Paid'].map(tab => (
+              {/* ফিল্টার ট্যাব */}
+              <div className="flex gap-1 overflow-x-auto w-full pb-1">
+                {[
+                  { id: 'ALL', label: 'সকল' },
+                  { id: 'OneLakhPlus', label: '★ ১ লক্ষ+' },
+                  { id: 'OneTimeCash', label: 'নগদ দাতা' },
+                  { id: 'Confirmed', label: 'চলমান' },
+                  { id: 'Paid', label: 'পরিশোধিত' },
+                  { id: 'Prospective', label: 'সম্ভাব্য' }
+                ].map(tab => (
                   <button 
-                    key={tab} 
-                    onClick={() => setActiveTab(tab)}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition ${
-                      activeTab === tab 
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' 
-                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    key={tab.id} 
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`px-2 py-1 text-[11px] font-bold rounded-lg border transition whitespace-nowrap cursor-pointer ${
+                      activeTab === tab.id 
+                        ? tab.id === 'OneLakhPlus' 
+                          ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
+                          : 'bg-emerald-600 text-white border-emerald-600 shadow-xs' 
+                        : tab.id === 'OneLakhPlus'
+                          ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    {tab === 'ALL' ? 'সকল' : tab}
+                    {tab.label}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-2.5 sm:space-y-3">
               {filteredDonors.length === 0 ? (
-                <div className="bg-white p-8 rounded-xl border border-slate-200 text-center text-slate-500 text-sm">
-                  কোনো ডোনার পাওয়া যায়নি।
+                <div className="bg-white p-6 rounded-xl border border-slate-200 text-center text-slate-500 text-xs sm:text-sm">
+                  কোনো ডোনার পাওয়া যায়নি।
                 </div>
               ) : (
                 filteredDonors.map(donor => {
                   const due = (donor.pledgedAmount || 0) - (donor.paidAmount || 0);
+                  const isOneLakhPlus = Number(donor.paidAmount || 0) >= 100000;
+
                   return (
-                    <div key={donor.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-slate-300 transition">
-                      <div className="flex justify-between items-start">
+                    <div key={donor.id} className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs hover:border-slate-300 transition">
+                      <div className="flex flex-col sm:flex-row justify-between sm:items-start gap-2">
                         <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-900 text-base">{donor.name}</span>
-                            <span className="text-xs px-2 py-0.5 rounded font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200">
-                              {donor.donorId}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-slate-900 text-sm sm:text-base">{donor.name}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                              <span style={bnSafeStyle}>{toBengaliNumber(donor.donorId)}</span>
                             </span>
-                            <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${
-                              donor.category === 'Paid' ? 'bg-emerald-100 text-emerald-800' :
+
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                              donor.category === 'OneTimeCash' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                              donor.category === 'Paid' ? 'bg-teal-100 text-teal-800' :
                               donor.category === 'Confirmed' ? 'bg-blue-100 text-blue-800' :
                               'bg-amber-100 text-amber-800'
                             }`}>
-                              {donor.category}
+                              {donor.category === 'OneTimeCash' ? 'এককালীন নগদ' :
+                               donor.category === 'Paid' ? 'পরিশোধিত' :
+                               donor.category === 'Confirmed' ? 'চলমান কিস্তি' :
+                               'সম্ভাব্য'}
                             </span>
+
+                            {isOneLakhPlus && (
+                              <span className="text-[9px] font-black bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.5 rounded-md flex items-center gap-0.5 shadow-2xs">
+                                ★ ১ লক্ষ+ দাতা
+                              </span>
+                            )}
                           </div>
-                          <div className="flex items-center gap-4 text-xs text-slate-500 mt-1">
-                            <span className="flex items-center gap-1 font-medium"><Phone className="w-3.5 h-3.5" /> {donor.phone}</span>
+                          <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-1">
+                            <span className="flex items-center gap-1 font-medium">
+                              <Phone className="w-3 h-3 shrink-0" />
+                              <span style={bnSafeStyle}>{toBengaliNumber(donor.phone)}</span>
+                            </span>
                             {donor.address && <span>{donor.address}</span>}
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          {/* পেমেন্ট হিস্ট্রি দেখার বাটন */}
+
+                        {/* অ্যাকশন বাটনসমূহ */}
+                        <div className="flex items-center gap-1.5 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
                           <button 
                             onClick={() => {
                               setHistoryDonor(donor);
                               setActivePrintView('history_modal');
                             }}
-                            className="flex items-center gap-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 px-2.5 py-1.5 rounded-lg font-semibold transition cursor-pointer"
-                            title="পেমেন্ট হিস্ট্রি দেখুন"
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-1 text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 px-2 py-1 rounded-md font-semibold transition cursor-pointer"
                           >
-                            হিস্ট্রি ({donor.installments?.length || 0})
+                            হিস্ট্রি (<span style={bnSafeStyle}>{toBengaliNumber(donor.installments?.length || 0)}</span>)
                           </button>
 
-                          {/* রশিদ প্রিন্ট বাটন */}
                           <button 
                             onClick={() => triggerPrintReceipt(donor)}
-                            className="flex items-center gap-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer"
-                            title="রশিদ প্রিন্ট করুন"
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-1 text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 px-2 py-1 rounded-md font-semibold transition cursor-pointer"
                           >
-                            <Printer className="w-3.5 h-3.5 text-slate-600" /> রশিদ প্রিন্ট
+                            <Printer className="w-3 h-3 text-slate-600" /> রশিদ
                           </button>
 
-                          {/* কিস্তি জমা বাটন */}
-                          {donor.category !== 'Paid' && (
+                          {donor.category !== 'Paid' && donor.category !== 'OneTimeCash' && (
                             <button 
                               onClick={() => setSelectedDonor(donor)}
-                              className="flex items-center gap-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer shadow-sm"
+                              className="flex-1 sm:flex-none flex items-center justify-center gap-1 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-md font-semibold transition cursor-pointer shadow-xs"
                             >
-                              <CreditCard className="w-3.5 h-3.5" /> কিস্তি জমা
+                              <CreditCard className="w-3 h-3" /> কিস্তি
                             </button>
                           )}
                         </div>
                       </div>
 
-                      <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
+                      {/* টাকার হিসাব (১ এর নিচে কোনো অংশ কাটবে না) */}
+                      <div className="mt-2.5 pt-2 border-t border-slate-100 grid grid-cols-3 gap-1.5 text-xs">
                         <div>
-                          <span className="text-slate-400 block font-medium">প্রতিশ্রুতি</span>
-                          <span className="font-bold text-slate-800 text-sm">৳{donor.pledgedAmount?.toLocaleString()}</span>
+                          <span className="text-slate-400 block font-medium text-[10px]">প্রতিশ্রুতি</span>
+                          <span className="font-bold text-slate-800 text-xs sm:text-sm">
+                            ৳<span style={bnSafeStyle}>{toBengaliCurrency(donor.pledgedAmount)}</span>
+                          </span>
                         </div>
                         <div>
-                          <span className="text-slate-400 block font-medium">পরিশোধ</span>
-                          <span className="font-bold text-emerald-700 text-sm">৳{donor.paidAmount?.toLocaleString()}</span>
+                          <span className="text-slate-400 block font-medium text-[10px]">পরিশোধ</span>
+                          <span className="font-bold text-emerald-700 text-xs sm:text-sm">
+                            ৳<span style={bnSafeStyle}>{toBengaliCurrency(donor.paidAmount)}</span>
+                          </span>
                         </div>
                         <div>
-                          <span className="text-slate-400 block font-medium">বকেয়া</span>
-                          <span className={`font-bold text-sm ${due > 0 ? 'text-rose-600' : 'text-slate-500'}`}>
-                            ৳{due > 0 ? due.toLocaleString() : 0}
+                          <span className="text-slate-400 block font-medium text-[10px]">বকেয়া</span>
+                          <span className={`font-bold text-xs sm:text-sm ${due > 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+                            ৳<span style={bnSafeStyle}>{toBengaliCurrency(due > 0 ? due : 0)}</span>
                           </span>
                         </div>
                       </div>
@@ -461,41 +575,43 @@ export default function AdminDashboard() {
       {/* ক্যাটাগরি প্রিন্ট সিলেকশন মডাল */}
       {showCategoryPrintModal && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 print:hidden">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="text-base font-bold text-slate-900">রিপোর্ট প্রিন্ট সেটআপ</h3>
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+              <h3 className="text-sm font-bold text-slate-900">রিপোর্ট প্রিন্ট সেটআপ</h3>
               <button onClick={() => setShowCategoryPrintModal(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="my-4 space-y-3">
-              <label className="text-xs font-semibold text-slate-600 block">কোন ক্যাটাগরির লিস্ট প্রিন্ট করতে চান?</label>
+            <div className="my-3.5 space-y-2.5">
+              <label className="text-xs font-semibold text-slate-600 block">কোন ক্যাটাগরি প্রিন্ট করবেন?</label>
               <select 
                 value={printCategory} 
                 onChange={(e) => setPrintCategory(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg text-sm border-slate-300 font-medium outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full px-3 py-1.5 border rounded-lg text-xs sm:text-sm border-slate-300 font-medium outline-none focus:ring-2 focus:ring-emerald-500"
               >
                 <option value="ALL">সকল ক্যাটাগরি (All Donors)</option>
+                <option value="OneLakhPlus">★ ১ লক্ষ+ দাতা (One Lakh Plus)</option>
+                <option value="OneTimeCash">এককালীন নগদ দাতা (One Time Cash)</option>
                 <option value="Confirmed">চলমান কিস্তি (Confirmed)</option>
-                <option value="Prospective">সম্ভাব্য ডোনার (Prospective)</option>
                 <option value="Paid">সম্পূর্ণ পরিশোধিত (Paid)</option>
+                <option value="Prospective">সম্ভাব্য ডোনার (Prospective)</option>
               </select>
-              <p className="text-xs text-slate-500">
-                নির্বাচিত ক্যাটাগরির মোট {printReportList.length} জন ডোনারের তালিকা একটি মাত্র কমপ্যাক্ট টেবিলে প্রিন্ট হবে।
+              <p className="text-[11px] text-slate-500">
+                মোট <span style={bnSafeStyle}>{toBengaliNumber(printReportList.length)}</span> জন ডোনারের তালিকা সিঙ্গেল টেবিলে প্রিন্ট হবে।
               </p>
             </div>
 
-            <div className="flex gap-2 pt-2">
+            <div className="flex gap-2 pt-1">
               <button 
                 onClick={() => setShowCategoryPrintModal(false)}
-                className="w-1/2 py-2 border border-slate-200 text-slate-600 text-xs rounded-lg font-semibold hover:bg-slate-50 cursor-pointer"
+                className="w-1/2 py-1.5 border border-slate-200 text-slate-600 text-xs rounded-lg font-semibold hover:bg-slate-50 cursor-pointer"
               >
                 বাতিল
               </button>
               <button 
                 onClick={triggerPrintReport}
-                className="w-1/2 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs rounded-lg font-semibold transition cursor-pointer"
+                className="w-1/2 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs rounded-lg font-semibold transition cursor-pointer"
               >
                 প্রিন্ট করুন
               </button>
@@ -507,11 +623,11 @@ export default function AdminDashboard() {
       {/* কিস্তি গ্রহণ মডাল */}
       {selectedDonor && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 print:hidden">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
-            <h3 className="text-base font-bold text-slate-900 mb-1">কিস্তি গ্রহণ</h3>
-            <p className="text-xs text-slate-500 mb-4">{selectedDonor.name} ({selectedDonor.donorId})</p>
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200">
+            <h3 className="text-sm font-bold text-slate-900 mb-0.5">কিস্তি গ্রহণ</h3>
+            <p className="text-xs text-slate-500 mb-3">{selectedDonor.name} (<span style={bnSafeStyle}>{toBengaliNumber(selectedDonor.donorId)}</span>)</p>
 
-            <form onSubmit={handleAddInstallment} className="space-y-3">
+            <form onSubmit={handleAddInstallment} className="space-y-2.5">
               <div>
                 <label className="text-xs font-semibold text-slate-600">জমার পরিমাণ (৳) *</label>
                 <input 
@@ -520,8 +636,8 @@ export default function AdminDashboard() {
                   autoFocus
                   value={installmentAmount}
                   onChange={e => setInstallmentAmount(e.target.value)}
-                  className="w-full mt-1 px-3 py-2 border rounded-lg text-sm border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none font-semibold"
-                  placeholder="পরিমাণ লিখুন"
+                  className="w-full mt-1 px-3 py-1.5 border rounded-lg text-sm border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none font-semibold"
+                  placeholder="পরিমাণ"
                 />
               </div>
               <div>
@@ -531,7 +647,7 @@ export default function AdminDashboard() {
                   required
                   value={installmentDate}
                   onChange={e => setInstallmentDate(e.target.value)}
-                  className="w-full mt-1 px-3 py-2 border rounded-lg text-sm border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none font-medium bg-white"
+                  className="w-full mt-1 px-3 py-1.5 border rounded-lg text-xs border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none font-medium bg-white"
                 />
               </div>
               <div>
@@ -540,24 +656,24 @@ export default function AdminDashboard() {
                   type="text" 
                   value={installmentNote}
                   onChange={e => setInstallmentNote(e.target.value)}
-                  className="w-full mt-1 px-3 py-2 border rounded-lg text-sm border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  className="w-full mt-1 px-3 py-1.5 border rounded-lg text-xs border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none"
                   placeholder="যেমন: রশিদ নং ১২৩৪"
                 />
               </div>
 
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-2 pt-1.5">
                 <button 
                   type="button" 
                   onClick={() => setSelectedDonor(null)}
-                  className="w-1/2 py-2 border border-slate-200 text-slate-600 text-xs rounded-lg font-semibold hover:bg-slate-50 cursor-pointer"
+                  className="w-1/2 py-1.5 border border-slate-200 text-slate-600 text-xs rounded-lg font-semibold hover:bg-slate-50 cursor-pointer"
                 >
                   বাতিল
                 </button>
                 <button 
                   type="submit" 
-                  className="w-1/2 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs rounded-lg font-semibold transition cursor-pointer"
+                  className="w-1/2 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs rounded-lg font-semibold transition cursor-pointer"
                 >
-                  জমা নিশ্চিত করুন
+                  নিশ্চিত করুন
                 </button>
               </div>
             </form>
@@ -565,31 +681,37 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* =========================================================================
-          প্রিন্ট ভিউ ১: একক ডোনারের মানি রিসিট (শুধুমাত্র receipt মুডে দৃশ্যমান)
-          ========================================================================= */}
+      {/* প্রিন্ট ভিউ ১: মানি রিসিট */}
       {historyDonor && activePrintView === 'receipt' && (
         <div className="hidden print:block print-area p-8 max-w-3xl mx-auto border-2 border-slate-800 bg-white text-black">
           <div className="text-center border-b-2 border-slate-900 pb-4 mb-4">
             <p className="text-xs font-semibold tracking-widest text-slate-700">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
-            <h1 className="text-2xl font-black text-slate-900 tracking-wide mt-1">আব্দুল হাকিম ওয়াকফ স্টেট</h1>
-            <p className="text-sm font-semibold text-slate-800">জেলা স্কুল রোড জামে মসজিদ ও হাফিজিয়া মাদ্রাসা কমপ্লেক্স</p>
-            <p className="text-xs text-slate-600">ময়মনসিংহ সদর, ময়মনসিংহ।</p>
+            <h1 className="text-2xl font-black text-slate-900 tracking-wide mt-1">জিলা স্কুল রোড জামে মসজিদ ও হাফিজিয়া মাদ্রাসা এর অধীন</h1>
+            <h2 className="text-2xl font-black text-slate-900 tracking-wide mt-1">আব্দুল হাকিম ওয়াক্‌ফ এস্টেট</h2>
+            <p className="text-xs text-slate-600">জিলা স্কুল মোড়, সদর, ময়মনসিংহ।</p>
             <div className="inline-block border-2 border-slate-900 px-4 py-1 mt-3 font-bold text-sm tracking-wide bg-slate-100">
-              ডোনার অনুদান আদায় ও কিস্তি বিবরণী রশিদ
+              ভবন নির্মাণ কাজের ডোনার অনুদান আদায় ও কিস্তি বিবরণী রশিদ
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-y-2 text-sm border-b pb-3 mb-4 border-slate-400">
             <div>
-              <p><span className="font-semibold">রশিদ / আইডি নং:</span> <strong className="font-mono text-base">{historyDonor.donorId}</strong></p>
+              <p><span className="font-semibold">রশিদ / আইডি নং:</span> <strong className="font-mono text-base"><span style={bnSafeStyle}>{toBengaliNumber(historyDonor.donorId)}</span></strong></p>
               <p><span className="font-semibold">ডোনারের নাম:</span> <strong className="text-base">{historyDonor.name}</strong></p>
-              <p><span className="font-semibold">মোবাইল:</span> {historyDonor.phone}</p>
+              <p><span className="font-semibold">মোবাইল:</span> <span style={bnSafeStyle}>{toBengaliNumber(historyDonor.phone)}</span></p>
             </div>
             <div className="text-right">
-              <p><span className="font-semibold">তারিখ:</span> {new Date().toLocaleDateString('bn-BD')}</p>
+              <p><span className="font-semibold">তারিখ:</span> <span style={bnSafeStyle}>{toBengaliNumber(new Date().toLocaleDateString('bn-BD'))}</span></p>
               <p><span className="font-semibold">ঠিকানা:</span> {historyDonor.address || '—'}</p>
-              <p><span className="font-semibold">বর্তমান স্ট্যাটাস:</span> <strong>{historyDonor.category}</strong></p>
+              <p>
+                <span className="font-semibold">ক্যাটাগরি: </span>
+                <strong>
+                  {historyDonor.category === 'OneTimeCash' ? 'এককালীন নগদ' :
+                   historyDonor.category === 'Paid' ? 'পরিশোধিত' :
+                   historyDonor.category === 'Confirmed' ? 'চলমান কিস্তি' : 'সম্ভাব্য'}
+                  {Number(historyDonor.paidAmount || 0) >= 100000 ? ' (★ ১ লক্ষ+ দাতা)' : ''}
+                </strong>
+              </p>
             </div>
           </div>
 
@@ -606,16 +728,18 @@ export default function AdminDashboard() {
               {historyDonor.installments && historyDonor.installments.length > 0 ? (
                 historyDonor.installments.map((inst, idx) => (
                   <tr key={idx} className="border-b border-slate-400">
-                    <td className="p-2 text-center border-r border-slate-400 font-mono">{idx + 1}</td>
+                    <td className="p-2 text-center border-r border-slate-400"><span style={bnSafeStyle}>{toBengaliNumber(idx + 1)}</span></td>
                     <td className="p-2 border-r border-slate-400">
-                      {new Date(inst.date).toLocaleDateString('bn-BD', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric'
-                      })}
+                      <span style={bnSafeStyle}>
+                        {toBengaliNumber(new Date(inst.date).toLocaleDateString('bn-BD', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric'
+                        }))}
+                      </span>
                     </td>
-                    <td className="p-2 border-r border-slate-400">{inst.note || 'কিস্তি আদায়'}</td>
-                    <td className="p-2 text-right font-bold">৳{Number(inst.amount).toLocaleString()}</td>
+                    <td className="p-2 border-r border-slate-400"><span style={bnSafeStyle}>{toBengaliNumber(inst.note || 'কিস্তি আদায়')}</span></td>
+                    <td className="p-2 text-right font-bold">৳<span style={bnSafeStyle}>{toBengaliCurrency(inst.amount)}</span></td>
                   </tr>
                 ))
               ) : (
@@ -628,12 +752,12 @@ export default function AdminDashboard() {
 
           <div className="flex justify-between items-center bg-slate-50 border border-slate-800 p-3 mb-10 text-sm">
             <div>
-              <p><span className="font-semibold">প্রতিশ্রুত অনুদান:</span> ৳{Number(historyDonor.pledgedAmount).toLocaleString()}</p>
-              <p><span className="font-semibold">সর্বমোট বকেয়া:</span> <strong className="text-red-700">৳{((historyDonor.pledgedAmount || 0) - (historyDonor.paidAmount || 0)).toLocaleString()}</strong></p>
+              <p><span className="font-semibold">প্রতিশ্রুত অনুদান:</span> ৳<span style={bnSafeStyle}>{toBengaliCurrency(historyDonor.pledgedAmount)}</span></p>
+              <p><span className="font-semibold">সর্বমোট বকেয়া:</span> <strong className="text-red-700">৳<span style={bnSafeStyle}>{toBengaliCurrency((historyDonor.pledgedAmount || 0) - (historyDonor.paidAmount || 0))}</span></strong></p>
             </div>
             <div className="text-right">
               <span className="text-xs text-slate-500 block uppercase font-bold">সর্বমোট আদায়কৃত টাকা</span>
-              <span className="text-xl font-black text-slate-900">৳{Number(historyDonor.paidAmount).toLocaleString()}</span>
+              <span className="text-xl font-black text-slate-900">৳<span style={bnSafeStyle}>{toBengaliCurrency(historyDonor.paidAmount)}</span></span>
             </div>
           </div>
 
@@ -648,32 +772,42 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* =========================================================================
-          প্রিন্ট ভিউ ২: একক মাস্টার রেজিস্ট্রি টেবিল (শুধুমাত্র report মুডে দৃশ্যমান)
-          ========================================================================= */}
+      {/* প্রিন্ট ভিউ ২: রেজিস্ট্রি রিপোর্ট */}
       {activePrintView === 'report' && (
         <div className="hidden print:block print-area p-4 max-w-full mx-auto bg-white text-black">
-          {/* প্রাতিষ্ঠানিক হেডার */}
           <div className="text-center border-b-2 border-slate-900 pb-2 mb-3">
-            <h1 className="text-xl font-black text-slate-900">আব্দুল হাকিম ওয়াকফ স্টেট</h1>
-            <p className="text-xs font-semibold text-slate-700">জেলা স্কুল রোড জামে মসজিদ ও হাফিজিয়া মাদ্রাসা কমপ্লেক্স, ময়মনসিংহ</p>
+            <p className="text-xs font-semibold tracking-widest text-slate-700">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
+            <h1 className="text-xl font-black text-slate-900 tracking-wide mt-1">জিলা স্কুল রোড জামে মসজিদ ও হাফিজিয়া মাদ্রাসা এর অধীন</h1>
+            <h2 className="text-xl font-black text-slate-900 tracking-wide mt-0.5">আব্দুল হাকিম ওয়াক্‌ফ এস্টেট</h2>
+            <p className="text-xs text-slate-600">জিলা স্কুল মোড়, সদর, ময়মনসিংহ।</p>
+            <div className="inline-block border-2 border-slate-900 px-4 py-1 mt-2 font-bold text-xs tracking-wide bg-slate-100">
+              ভবন নির্মাণ কাজের ডোনার অনুদানের রেজিস্ট্রি রিপোর্ট
+            </div>
+            
             <div className="flex justify-between items-center mt-2 text-[11px] font-bold border-t pt-1 border-slate-300">
-              <span>ক্যাটাগরি: {printCategory === 'ALL' ? 'সকল ডোনার' : printCategory}</span>
-              <span>মোট ডোনার: {printReportList.length} জন</span>
-              <span>তারিখ: {new Date().toLocaleDateString('bn-BD')}</span>
+              <span>
+                ক্যাটাগরি: {
+                  printCategory === 'ALL' ? 'সকল ডোনার' :
+                  printCategory === 'OneLakhPlus' ? '★ ১ লক্ষ+ দাতা তালিকা' :
+                  printCategory === 'OneTimeCash' ? 'এককালীন নগদ দাতা' :
+                  printCategory === 'Confirmed' ? 'চলমান কিস্তি' :
+                  printCategory === 'Paid' ? 'সম্পূর্ণ পরিশোধিত' : 'সম্ভাব্য'
+                }
+              </span>
+              <span>মোট ডোনার: <span style={bnSafeStyle}>{toBengaliNumber(printReportList.length)}</span> জন</span>
+              <span>তারিখ: <span style={bnSafeStyle}>{toBengaliNumber(new Date().toLocaleDateString('bn-BD'))}</span></span>
             </div>
           </div>
 
-          {/* একমাত্র মাস্টার টেবিল (Single Compact Table) */}
           <table className="w-full text-left text-[11px] border border-slate-800 border-collapse">
             <thead className="bg-slate-100 border-b border-slate-800 font-bold">
               <tr className="border-b border-slate-800">
                 <th className="p-1.5 border-r border-slate-800 text-center w-8">নং</th>
-                <th className="p-1.5 border-r border-slate-800 w-16">আইডি</th>
+                <th className="p-1.5 border-r border-slate-800 w-20">আইডি</th>
                 <th className="p-1.5 border-r border-slate-800">ডোনারের নাম</th>
                 <th className="p-1.5 border-r border-slate-800">মোবাইল</th>
                 <th className="p-1.5 border-r border-slate-800">ঠিকানা</th>
-                <th className="p-1.5 border-r border-slate-800 text-center w-20">ক্যাটাগরি</th>
+                <th className="p-1.5 border-r border-slate-800 text-center w-24">ক্যাটাগরি</th>
                 <th className="p-1.5 border-r border-slate-800 text-right w-24">প্রতিশ্রুতি (৳)</th>
                 <th className="p-1.5 border-r border-slate-800 text-right w-24">আদায় (৳)</th>
                 <th className="p-1.5 text-right w-24">বকেয়া (৳)</th>
@@ -684,43 +818,45 @@ export default function AdminDashboard() {
                 const due = (donor.pledgedAmount || 0) - (donor.paidAmount || 0);
                 return (
                   <tr key={donor.id} className="border-b border-slate-400 leading-tight">
-                    <td className="p-1.5 text-center border-r border-slate-400 font-mono">{idx + 1}</td>
-                    <td className="p-1.5 border-r border-slate-400 font-mono font-bold">{donor.donorId}</td>
+                    <td className="p-1.5 text-center border-r border-slate-400"><span style={bnSafeStyle}>{toBengaliNumber(idx + 1)}</span></td>
+                    <td className="p-1.5 border-r border-slate-400 font-bold"><span style={bnSafeStyle}>{toBengaliNumber(donor.donorId)}</span></td>
                     <td className="p-1.5 border-r border-slate-400 font-bold">{donor.name}</td>
-                    <td className="p-1.5 border-r border-slate-400 font-mono">{donor.phone}</td>
+                    <td className="p-1.5 border-r border-slate-400"><span style={bnSafeStyle}>{toBengaliNumber(donor.phone)}</span></td>
                     <td className="p-1.5 border-r border-slate-400">{donor.address || '—'}</td>
-                    <td className="p-1.5 border-r border-slate-400 text-center">{donor.category}</td>
+                    <td className="p-1.5 border-r border-slate-400 text-center font-medium">
+                      {donor.category === 'OneTimeCash' ? 'নগদ' :
+                       donor.category === 'Paid' ? 'পরিশোধিত' :
+                       donor.category === 'Confirmed' ? 'চলমান' : 'সম্ভাব্য'}
+                    </td>
                     <td className="p-1.5 border-r border-slate-400 text-right font-medium">
-                      ৳{donor.pledgedAmount?.toLocaleString()}
+                      ৳<span style={bnSafeStyle}>{toBengaliCurrency(donor.pledgedAmount)}</span>
                     </td>
                     <td className="p-1.5 border-r border-slate-400 text-right font-bold">
-                      ৳{donor.paidAmount?.toLocaleString()}
+                      ৳<span style={bnSafeStyle}>{toBengaliCurrency(donor.paidAmount)}</span>
                     </td>
                     <td className="p-1.5 text-right font-bold">
-                      ৳{due > 0 ? due.toLocaleString() : 0}
+                      ৳<span style={bnSafeStyle}>{toBengaliCurrency(due > 0 ? due : 0)}</span>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
-            {/* সামারি রো */}
             <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-800 text-[11px]">
               <tr>
                 <td colSpan={6} className="p-2 text-right border-r border-slate-800">সর্বমোট:</td>
                 <td className="p-2 text-right border-r border-slate-800">
-                  ৳{printReportList.reduce((acc, curr) => acc + (Number(curr.pledgedAmount) || 0), 0).toLocaleString()}
+                  ৳<span style={bnSafeStyle}>{toBengaliCurrency(printReportList.reduce((acc, curr) => acc + (Number(curr.pledgedAmount) || 0), 0))}</span>
                 </td>
                 <td className="p-2 text-right border-r border-slate-800">
-                  ৳{printReportList.reduce((acc, curr) => acc + (Number(curr.paidAmount) || 0), 0).toLocaleString()}
+                  ৳<span style={bnSafeStyle}>{toBengaliCurrency(printReportList.reduce((acc, curr) => acc + (Number(curr.paidAmount) || 0), 0))}</span>
                 </td>
                 <td className="p-2 text-right">
-                  ৳{printReportList.reduce((acc, curr) => acc + ((Number(curr.pledgedAmount) || 0) - (Number(curr.paidAmount) || 0)), 0).toLocaleString()}
+                  ৳<span style={bnSafeStyle}>{toBengaliCurrency(printReportList.reduce((acc, curr) => acc + ((Number(curr.pledgedAmount) || 0) - (Number(curr.paidAmount) || 0)), 0))}</span>
                 </td>
               </tr>
             </tfoot>
           </table>
 
-          {/* অথরাইজেশন সিগনেচার */}
           <div className="grid grid-cols-2 pt-12 text-center text-xs font-semibold text-slate-800">
             <div>
               <div className="w-44 border-t border-slate-800 mx-auto pt-1">হিসাবরক্ষক / প্রস্তুতকারী</div>
@@ -731,14 +867,15 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
       {/* স্ক্রিনে হিস্ট্রি দেখার পপআপ */}
       {historyDonor && activePrintView === 'history_modal' && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 print:hidden">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
               <div>
-                <h3 className="text-base font-bold text-slate-900">পেমেন্ট হিস্ট্রি</h3>
-                <p className="text-xs text-slate-500">{historyDonor.name} ({historyDonor.donorId})</p>
+                <h3 className="text-sm font-bold text-slate-900">পেমেন্ট হিস্ট্রি</h3>
+                <p className="text-xs text-slate-500">{historyDonor.name} (<span style={bnSafeStyle}>{toBengaliNumber(historyDonor.donorId)}</span>)</p>
               </div>
               <button 
                 onClick={() => {
@@ -747,33 +884,35 @@ export default function AdminDashboard() {
                 }} 
                 className="text-slate-400 hover:text-slate-600 cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="my-4 max-h-64 overflow-y-auto space-y-2 pr-1">
+            <div className="my-3 max-h-60 overflow-y-auto space-y-2 pr-1">
               {!historyDonor.installments || historyDonor.installments.length === 0 ? (
-                <p className="text-center text-sm text-slate-400 py-6">কোনো কিস্তি জমার হিস্ট্রি নেই।</p>
+                <p className="text-center text-xs text-slate-400 py-6">কোনো কিস্তি জমার হিস্ট্রি নেই।</p>
               ) : (
                 historyDonor.installments.map((item, index) => (
-                  <div key={index} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex justify-between items-center text-xs">
+                  <div key={index} className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex justify-between items-center text-xs">
                     <div>
-                      <p className="font-semibold text-slate-800">{item.note || 'কিস্তি আদায়'}</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        তারিখ: {item.date ? new Date(item.date).toLocaleDateString('bn-BD', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A'}
+                      <p className="font-semibold text-slate-800"><span style={bnSafeStyle}>{toBengaliNumber(item.note || 'কিস্তি আদায়')}</span></p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        তারিখ: <span style={bnSafeStyle}>{item.date ? toBengaliNumber(new Date(item.date).toLocaleDateString('bn-BD', { year: 'numeric', month: 'short', day: 'numeric' })) : 'N/A'}</span>
                       </p>
                     </div>
-                    <span className="font-bold text-emerald-700 text-sm">
-                      +৳{Number(item.amount)?.toLocaleString()}
+                    <span className="font-bold text-emerald-700 text-xs sm:text-sm">
+                      +৳<span style={bnSafeStyle}>{toBengaliCurrency(item.amount)}</span>
                     </span>
                   </div>
                 ))
               )}
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex justify-between items-center text-sm">
+            <div className="pt-2.5 border-t border-slate-100 flex justify-between items-center text-xs">
               <span className="text-slate-500 font-semibold">মোট পরিশোধ:</span>
-              <span className="font-bold text-emerald-700 text-base">৳{Number(historyDonor.paidAmount)?.toLocaleString()}</span>
+              <span className="font-bold text-emerald-700 text-sm">
+                ৳<span style={bnSafeStyle}>{toBengaliCurrency(historyDonor.paidAmount)}</span>
+              </span>
             </div>
           </div>
         </div>
