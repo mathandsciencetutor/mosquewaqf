@@ -22,7 +22,10 @@ import {
   ArrowUpRight,
   Landmark,
   Wallet,
-  BookOpen
+  BookOpen,
+  X,
+  FileText,
+  Tag
 } from 'lucide-react';
 
 function toBengaliNumber(num) {
@@ -78,15 +81,16 @@ const bnSafeStyle = {
 export default function HomePage() {
   const [donors, setDonors] = useState([]);
   const [vouchers, setVouchers] = useState([]);
+  const [materials, setMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [showMaterialsModal, setShowMaterialsModal] = useState(false);
   const itemsPerPage = 10;
 
   useEffect(() => {
     async function loadPublicData() {
       try {
-        // ১. ডোনার ডাটা লোড
         const donorSnap = await getDocs(collection(db, 'donors'));
         const donorList = donorSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
@@ -96,12 +100,10 @@ export default function HomePage() {
 
         setDonors(sortedDonors);
 
-        // ২. ফাইনান্স ভাউচার ডাটা লোড
         const voucherQuery = query(collection(db, 'vouchers'), orderBy('date', 'desc'));
         const voucherSnap = await getDocs(voucherQuery);
         const voucherList = voucherSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        // ডোনারদের কিস্তিগুলোকে ফাইনান্স ক্যাশ-ইনের সাথে সিঙ্ক করা
         const donorVouchers = [];
         donorList.forEach(d => {
           if (d.installments && Array.isArray(d.installments)) {
@@ -128,6 +130,15 @@ export default function HomePage() {
 
         setVouchers(combinedVouchers);
 
+        // আপনার building_materials কালেকশন থেকে আসল ডাটা ফেচ করা হচ্ছে
+        const materialsSnap = await getDocs(collection(db, 'building_materials'));
+        const materialsList = materialsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        // সর্বশেষ আপডেটের সময় অনুযায়ী সাজানো
+        materialsList.sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
+        
+        setMaterials(materialsList);
+
       } catch (err) {
         console.error('তথ্য লোড করতে সমস্যা হয়েছে:', err);
       } finally {
@@ -137,12 +148,10 @@ export default function HomePage() {
     loadPublicData();
   }, []);
 
-  // ডোনার পরিসংখ্যান
   const totalCollectedFromDonors = donors.reduce((acc, curr) => acc + (Number(curr.paidAmount) || 0), 0);
   const totalPledged = donors.reduce((acc, curr) => acc + (Number(curr.pledgedAmount) || 0), 0);
   const confirmedDonorsCount = donors.length;
 
-  // ফাইনান্স ক্যাশ ও খরচ হিসাব
   const totalCashIn = vouchers
     .filter(v => v.voucherType === 'Credit' && v.status === 'Approved')
     .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
@@ -158,7 +167,6 @@ export default function HomePage() {
   const actualProjectExpense = totalCashOut - totalBankDeposit;
   const netBalance = totalCashIn - totalCashOut;
 
-  // ডোনার ফিল্টারিং
   const filteredDonors = donors.filter(d => {
     const search = searchTerm.toLowerCase();
     const hasInInstallments = d.installments?.some(inst => 
@@ -188,7 +196,6 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
       
-      {/* ১. টপ হেডার */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-xs">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2 sm:py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -215,7 +222,6 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* ২. হিরো সেকশন */}
       <section className="bg-gradient-to-b from-emerald-900 via-emerald-800 to-teal-900 text-white py-8 sm:py-12 px-4 text-center relative overflow-hidden">
         <div className="max-w-3xl mx-auto relative z-10">
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-medium bg-emerald-700/60 border border-emerald-500/30 text-emerald-100 mb-3 backdrop-blur-sm">
@@ -228,7 +234,8 @@ export default function HomePage() {
           <p className="text-xs sm:text-sm md:text-base text-emerald-100/90 leading-relaxed max-w-2xl mx-auto mb-5 px-1">
             জেলা স্কুল রোড জামে মসজিদ ও হাফিজিয়া মাদ্রাসা এর অধীন <strong>আব্দুল হাকিম ওয়াক্‌ফ এস্টেট</strong> ভবন নির্মাণ কাজের সার্বিক আয়, ব্যয় ও দানবীরদের অবদান স্বচ্ছতার সাথে সংরক্ষিত।
           </p>
-          <div className="flex flex-row justify-center gap-2">
+          
+          <div className="flex flex-wrap justify-center gap-2">
             <a
               href="#finance-summary-section"
               className="bg-amber-400 hover:bg-amber-300 text-emerald-950 font-bold px-3.5 sm:px-5 py-2 rounded-xl text-xs sm:text-sm transition shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
@@ -243,11 +250,17 @@ export default function HomePage() {
               <Award className="w-4 h-4" />
               দানবীর তালিকা
             </a>
+            <button
+              onClick={() => setShowMaterialsModal(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3.5 sm:px-5 py-2 rounded-xl text-xs sm:text-sm transition shadow-md flex items-center justify-center gap-1.5 cursor-pointer border border-blue-400/40"
+            >
+              <Building2 className="w-4 h-4 text-amber-300" />
+              নির্মাণ সামগ্রীর মূল্য তালিকা
+            </button>
           </div>
         </div>
       </section>
 
-      {/* ৩. লাইভ পরিসংখ্যান ও ফাইনান্স সামারি কার্ডস */}
       <section className="max-w-7xl mx-auto px-3 sm:px-4 -mt-5 sm:-mt-7 relative z-20 w-full">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
           
@@ -314,7 +327,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ৪. সাম্প্রতিক ট্রানজ্যাকশন প্রিভিউ সেকশন */}
       <section id="finance-summary-section" className="max-w-7xl mx-auto px-3 sm:px-4 pt-8 w-full">
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-3.5 sm:p-6">
           <div className="flex justify-between items-center mb-3.5 border-b border-slate-100 pb-3">
@@ -370,7 +382,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ৫. দানবীর তালিকা ও পেজিনেশন টেবিল */}
       <section id="public-dashboard-table" className="max-w-7xl mx-auto px-3 sm:px-4 py-8 w-full">
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-3.5 sm:p-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 border-b border-slate-100 pb-3.5">
@@ -482,7 +493,6 @@ export default function HomePage() {
                 </table>
               </div>
 
-              {/* পেজিনেশন */}
               <div className="flex flex-col sm:flex-row items-center justify-between border-t border-slate-100 mt-4 pt-3 gap-2.5">
                 <div className="text-[10px] sm:text-xs text-slate-500">
                   মোট <span className="font-bold text-slate-800">{toBengaliNumber(filteredDonors.length)}</span> জনের মধ্যে{' '}
@@ -523,7 +533,92 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ৬. অনুদান পাঠানোর নিয়মাবলী ও ব্যাংক একাউন্ট */}
+      {/* পপ-আপ উইন্ডো: মোহতামীম সাহেবের বক্তব্যের জন্য নির্মাণ সামগ্রীর মূল্য তালিকা */}
+      {showMaterialsModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 my-auto relative animate-in fade-in zoom-in duration-200">
+            
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 bg-amber-100 text-amber-800 rounded-xl flex items-center justify-center font-bold">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 leading-tight">
+                    নির্মাণ সামগ্রীর বর্তমান বাজারদর (বক্তব্যের সহায়ক তথ্য)
+                  </h3>
+                  <p className="text-xs text-slate-500">আব্দুল হাকিম ওয়াক্‌ফ এস্টেট নির্মাণ প্রকল্প</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowMaterialsModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 cursor-pointer transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3 mb-4 text-xs text-amber-900 leading-relaxed">
+              <strong>জনগণের উদ্দেশ্যে বা ওয়াজ মাহফিলে বক্তব্যের সময়:</strong> মোহতামীম সাহেব এই তালিকা থেকে বর্তমান রড, সিমেন্ট ও ইটের বাজারদর উল্লেখ করে ওয়াক্‌ফ তহবিলের গুরুত্ব ও স্বচ্ছতা তুলে ধরতে পারবেন।
+            </div>
+
+            <div className="max-h-72 overflow-y-auto border rounded-xl border-slate-200">
+              <table className="w-full text-left text-xs">
+              <thead className="bg-slate-100 sticky top-0 font-semibold text-slate-700 border-b border-slate-200">
+                <tr>
+                  <th className="p-3">সামগ্রীর নাম ও স্পেসিফিকেশন</th>
+                  <th className="p-3 text-center">একক (Unit)</th>
+                  <th className="p-3 text-right">বর্তমান মূল্য (টাকা)</th>
+                  <th className="p-3 text-center">আপডেটের তারিখ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {materials.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="p-5 text-center text-slate-400">কোনো তথ্য পাওয়া যায়নি।</td>
+                  </tr>
+                ) : (
+                  materials.map((mat, i) => (
+                    <tr key={i} className="hover:bg-slate-50">
+                      <td className="p-3 font-semibold text-slate-900">
+                        <div className="flex items-center gap-1.5">
+                          <Tag className="w-3.5 h-3.5 text-blue-600" />
+                          {mat.name}
+                        </div>
+                        {mat.brandOrGrade && (
+                          <span className="text-[10px] text-slate-500 block mt-0.5 ml-5">
+                            {mat.brandOrGrade}
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3 text-center font-medium text-slate-600">প্রতি {mat.unit}</td>
+                      <td className="p-3 text-right font-black text-emerald-800 text-sm">
+                        ৳<span style={bnSafeStyle}>{toBengaliCurrency(mat.price)}</span>
+                      </td>
+                      <td className="p-3 text-center text-slate-500 text-[11px]">
+                        <span style={bnSafeStyle}>{formatBengaliDate(mat.lastUpdatedDate)}</span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 mt-2 border-t border-slate-100">
+              <button 
+                type="button" 
+                onClick={() => setShowMaterialsModal(false)}
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs rounded-xl font-bold transition cursor-pointer shadow-xs"
+              >
+                বন্ধ করুন
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
       <section id="donation-details" className="bg-emerald-50/60 border-t border-emerald-100 py-8 px-3 sm:px-4">
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-5">
@@ -577,7 +672,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ৭. ফুটার */}
       <footer className="bg-slate-900 text-slate-300 py-6 px-4 mt-auto">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-2 text-[11px] text-center md:text-left">
           <div>

@@ -73,8 +73,21 @@ export default function AdminHub() {
     );
   }
 
-  // ফোকাসড মূল ২টি মডিউল
+  // ফোকাসড মূল মডিউল
   const coreModules = [
+    
+    {
+      id: 'finance',
+      title: 'ফিন্যান্স ও অ্যাকাউন্টস',
+      badge: 'কোর একাউন্টিং',
+      badgeColor: 'bg-blue-100 text-blue-800 border-blue-200',
+      description: 'ডেইলি ক্যাশ বুক, ডেবিট/ক্রেডিট ভাউচার, খাতভিত্তিক লেজার বিবরণী (সিমেন্ট, রড, লেবার খরচ) ও প্রিন্ট হাব।',
+      icon: Wallet,
+      iconColor: 'bg-blue-600 text-white',
+      href: '/admin/finance',
+      statLabel: 'হিসাব ও ক্যাশ বুক',
+      statValue: 'রিয়েল-টাইম ব্যালেন্স ও লেজার'
+    },
     {
       id: 'chada',
       title: 'চাঁদা ও অনুদান আদায়',
@@ -87,17 +100,18 @@ export default function AdminHub() {
       statLabel: 'মোট সংগৃহীত অনুদান',
       statValue: `৳${toBengaliCurrency(donorStats.totalCollected)} (${toBengaliNumber(donorStats.totalDonors)} জন দাতা)`
     },
+    // AdminHub পেজের coreModules এ এটি যুক্ত হবে:
     {
-      id: 'finance',
-      title: 'ফিন্যান্স ও অ্যাকাউন্টস',
-      badge: 'কোর একাউন্টিং',
-      badgeColor: 'bg-blue-100 text-blue-800 border-blue-200',
-      description: 'ডেইলি ক্যাশ বুক, ডেবিট/ক্রেডিট ভাউচার, খাতভিত্তিক লেজার বিবরণী (সিমেন্ট, রড, লেবার খরচ) ও প্রিন্ট হাব।',
-      icon: Wallet,
-      iconColor: 'bg-blue-600 text-white',
-      href: '/admin/finance',
-      statLabel: 'হিসাব ও ক্যাশ বুক',
-      statValue: 'রিয়েল-টাইম ব্যালেন্স ও লেজার'
+      id: 'materials',
+      title: 'নির্মাণ সামগ্রীর মূল্য তালিকা',
+      badge: 'বাজারদর আপডেট: মোহতামীম সাহেবের জন্য',
+      badgeColor: 'bg-amber-100 text-amber-800 border-amber-200',
+      description: 'রড, সিমেন্ট, ইট, বালির বর্তমান বাজারদর ও মূল্য তালিকা যুক্ত এবং প্রতিনিয়ত আপডেট করার সুবিধা।',
+      icon: Building2,
+      iconColor: 'bg-amber-600 text-white',
+      href: '/admin/materials-price',
+      statLabel: 'পণ্য ও মূল্য তালিকা',
+      statValue: 'সক্রিয় বাজারদর রেজিস্টার'
     }
   ];
 
