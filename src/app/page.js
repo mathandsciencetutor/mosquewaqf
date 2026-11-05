@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { 
   Building2, 
   HeartHandshake, 
@@ -17,7 +17,12 @@ import {
   ChevronLeft, 
   ChevronRight, 
   Receipt, 
-  Calendar 
+  Calendar,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Landmark,
+  Wallet,
+  BookOpen
 } from 'lucide-react';
 
 function toBengaliNumber(num) {
@@ -63,37 +68,97 @@ function formatBengaliDate(dateVal) {
   return toBengaliNumber(`${day}/${month}/${year}`);
 }
 
+const bnSafeStyle = {
+  fontFamily: "'Segoe UI', 'Noto Sans Bengali', sans-serif",
+  display: 'inline-block',
+  lineHeight: '1.6',
+  paddingBottom: '3px'
+};
+
 export default function HomePage() {
   const [donors, setDonors] = useState([]);
+  const [vouchers, setVouchers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
   useEffect(() => {
-    async function loadPublicDonors() {
+    async function loadPublicData() {
       try {
-        const snap = await getDocs(collection(db, 'donors'));
-        const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // ১. ডোনার ডাটা লোড
+        const donorSnap = await getDocs(collection(db, 'donors'));
+        const donorList = donorSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        const sortedList = list
+        const sortedDonors = donorList
           .filter(d => (Number(d.paidAmount) || 0) > 0)
           .sort((a, b) => (Number(b.paidAmount) || 0) - (Number(a.paidAmount) || 0));
 
-        setDonors(sortedList);
+        setDonors(sortedDonors);
+
+        // ২. ফাইনান্স ভাউচার ডাটা লোড
+        const voucherQuery = query(collection(db, 'vouchers'), orderBy('date', 'desc'));
+        const voucherSnap = await getDocs(voucherQuery);
+        const voucherList = voucherSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // ডোনারদের কিস্তিগুলোকে ফাইনান্স ক্যাশ-ইনের সাথে সিঙ্ক করা
+        const donorVouchers = [];
+        donorList.forEach(d => {
+          if (d.installments && Array.isArray(d.installments)) {
+            d.installments.forEach((inst, idx) => {
+              donorVouchers.push({
+                id: `donor-${d.id}-${idx}`,
+                voucherNo: `${d.donorId || 'WQF'}-${idx+1}`,
+                voucherType: 'Credit',
+                date: inst.date || d.entryDate || new Date().toISOString().split('T')[0],
+                head: 'চাঁদা ও অনুদান (ডোনার পেজ)',
+                amount: Number(inst.amount) || 0,
+                recipient: d.name,
+                paymentMethod: 'ক্যাশ',
+                status: 'Approved',
+                isDonorEntry: true
+              });
+            });
+          }
+        });
+
+        const combinedVouchers = [...voucherList, ...donorVouchers].sort((a, b) => {
+          return new Date(b.date) - new Date(a.date);
+        });
+
+        setVouchers(combinedVouchers);
+
       } catch (err) {
         console.error('তথ্য লোড করতে সমস্যা হয়েছে:', err);
       } finally {
         setLoading(false);
       }
     }
-    loadPublicDonors();
+    loadPublicData();
   }, []);
 
-  const totalCollected = donors.reduce((acc, curr) => acc + (Number(curr.paidAmount) || 0), 0);
+  // ডোনার পরিসংখ্যান
+  const totalCollectedFromDonors = donors.reduce((acc, curr) => acc + (Number(curr.paidAmount) || 0), 0);
   const totalPledged = donors.reduce((acc, curr) => acc + (Number(curr.pledgedAmount) || 0), 0);
   const confirmedDonorsCount = donors.length;
 
+  // ফাইনান্স ক্যাশ ও খরচ হিসাব
+  const totalCashIn = vouchers
+    .filter(v => v.voucherType === 'Credit' && v.status === 'Approved')
+    .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+
+  const totalCashOut = vouchers
+    .filter(v => v.voucherType === 'Debit' && v.status === 'Approved')
+    .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+
+  const totalBankDeposit = vouchers
+    .filter(v => v.voucherType === 'Debit' && v.status === 'Approved' && v.head === 'ব্যাংকে নগদ জমা (Bank Deposit)')
+    .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+
+  const actualProjectExpense = totalCashOut - totalBankDeposit;
+  const netBalance = totalCashIn - totalCashOut;
+
+  // ডোনার ফিল্টারিং
   const filteredDonors = donors.filter(d => {
     const search = searchTerm.toLowerCase();
     const hasInInstallments = d.installments?.some(inst => 
@@ -123,7 +188,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
       
-      {/* ১. টপ হেডার (মোবাইলে কোনো লেখা কাটবে না ও সুন্দরভাবে ফিট হবে) */}
+      {/* ১. টপ হেডার */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-xs">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2 sm:py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -150,7 +215,7 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* ২. হিরো সেকশন (মোবাইল ফ্রেন্ডলি ফন্ট ও প্যাডিং) */}
+      {/* ২. হিরো সেকশন */}
       <section className="bg-gradient-to-b from-emerald-900 via-emerald-800 to-teal-900 text-white py-8 sm:py-12 px-4 text-center relative overflow-hidden">
         <div className="max-w-3xl mx-auto relative z-10">
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-medium bg-emerald-700/60 border border-emerald-500/30 text-emerald-100 mb-3 backdrop-blur-sm">
@@ -158,84 +223,155 @@ export default function HomePage() {
             সাদাকায়ে জারিয়ার উত্তম ক্ষেত্র
           </span>
           <h2 className="text-xl sm:text-3xl md:text-5xl font-extrabold tracking-tight leading-tight mb-2.5 sm:mb-4 text-white">
-            ওয়াক্‌ফ তহবিল ও দানবীর সম্মাননা পোর্টাল
+            ওয়াক্‌ফ তহবিল ও আর্থিক স্বচ্ছতা পোর্টাল
           </h2>
           <p className="text-xs sm:text-sm md:text-base text-emerald-100/90 leading-relaxed max-w-2xl mx-auto mb-5 px-1">
-            জেলা স্কুল রোড জামে মসজিদ ও হাফিজিয়া মাদ্রাসা এর অধীন <strong>আব্দুল হাকিম ওয়াক্‌ফ এস্টেট</strong> ভবন নির্মাণ কাজের সার্বিক উন্নয়নে সম্মানিত শুভাকাঙ্ক্ষী ও দানবীরদের অবদান স্বচ্ছতার সাথে সংরক্ষিত।
+            জেলা স্কুল রোড জামে মসজিদ ও হাফিজিয়া মাদ্রাসা এর অধীন <strong>আব্দুল হাকিম ওয়াক্‌ফ এস্টেট</strong> ভবন নির্মাণ কাজের সার্বিক আয়, ব্যয় ও দানবীরদের অবদান স্বচ্ছতার সাথে সংরক্ষিত।
           </p>
           <div className="flex flex-row justify-center gap-2">
             <a
-              href="#public-dashboard-table"
+              href="#finance-summary-section"
               className="bg-amber-400 hover:bg-amber-300 text-emerald-950 font-bold px-3.5 sm:px-5 py-2 rounded-xl text-xs sm:text-sm transition shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
             >
-              <Award className="w-4 h-4" />
-              তালিকা দেখুন
+              <Wallet className="w-4 h-4" />
+              আর্থিক বিবরণী
             </a>
             <a
-              href="#donation-details"
+              href="#public-dashboard-table"
               className="bg-emerald-950/60 hover:bg-emerald-950/80 text-white border border-emerald-500/40 font-semibold px-3.5 sm:px-5 py-2 rounded-xl text-xs sm:text-sm transition flex items-center justify-center gap-1.5 cursor-pointer"
             >
-              <HeartHandshake className="w-4 h-4" />
-              অনুদান পাঠান
+              <Award className="w-4 h-4" />
+              দানবীর তালিকা
             </a>
           </div>
         </div>
       </section>
 
-      {/* ৩. লাইভ পরিসংখ্যান কার্ড (মোবাইলে কমপ্যাক্ট) */}
+      {/* ৩. লাইভ পরিসংখ্যান ও ফাইনান্স সামারি কার্ডস */}
       <section className="max-w-7xl mx-auto px-3 sm:px-4 -mt-5 sm:-mt-7 relative z-20 w-full">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
           
-          <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-emerald-100 shadow-md flex items-center justify-between">
+          <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-emerald-200 shadow-md flex items-center justify-between">
             <div>
-              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-emerald-600 block">
-                সর্বমোট সংগৃহীত অনুদান
+              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-emerald-700 block">
+                মোট ক্যাশ গ্রহণ (In)
               </span>
-              <h3 className="text-lg sm:text-2xl font-black text-slate-900 mt-0.5">
-                ৳{loading ? '...' : toBengaliCurrency(totalCollected)}
+              <h3 className="text-lg sm:text-xl font-black text-slate-900 mt-0.5">
+                ৳{loading ? '...' : toBengaliCurrency(totalCashIn)}
               </h3>
-              <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5">তহবিলে এখন পর্যন্ত মোট জমা হয়েছে</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">ডোনার ও অন্যান্য ফান্ড আয়</p>
             </div>
-            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center shadow-inner shrink-0">
-              <Coins className="w-5 h-5 animate-pulse" />
+            <div className="w-10 h-10 sm:w-11 sm:h-11 bg-emerald-50 text-emerald-700 rounded-xl flex items-center justify-center shadow-inner shrink-0">
+              <ArrowDownLeft className="w-5 h-5" />
             </div>
           </div>
 
-          <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-blue-100 shadow-md flex items-center justify-between">
+          <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-rose-200 shadow-md flex items-center justify-between">
             <div>
-              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-blue-600 block">
-                অংশগ্রহণকারী দানবীর
+              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-rose-600 block">
+                প্রকৃত প্রজেক্ট খরচ
               </span>
-              <h3 className="text-lg sm:text-2xl font-black text-slate-900 mt-0.5">
-                {loading ? '...' : toBengaliNumber(confirmedDonorsCount)} জন
+              <h3 className="text-lg sm:text-xl font-black text-rose-700 mt-0.5">
+                ৳{loading ? '...' : toBengaliCurrency(actualProjectExpense)}
               </h3>
-              <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5">অনুদান প্রদান অব্যাহত রেখেছেন</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">ব্যাংকে জমা বাদে আসল খরচ</p>
             </div>
-            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center shadow-inner shrink-0">
-              <Users className="w-5 h-5" />
+            <div className="w-10 h-10 sm:w-11 sm:h-11 bg-rose-50 text-rose-600 rounded-xl flex items-center justify-center shadow-inner shrink-0">
+              <ArrowUpRight className="w-5 h-5" />
             </div>
           </div>
 
-          <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-amber-100 shadow-md flex items-center justify-between">
+          <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-teal-200 shadow-md flex items-center justify-between bg-teal-50/20">
             <div>
-              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-amber-600 block">
-                মোট প্রতিশ্রুত অনুদান
+              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-teal-700 block">
+                ব্যাংকে মোট জমা
               </span>
-              <h3 className="text-lg sm:text-2xl font-black text-slate-900 mt-0.5">
-                ৳{loading ? '...' : toBengaliCurrency(totalPledged)}
+              <h3 className="text-lg sm:text-xl font-black text-teal-900 mt-0.5">
+                ৳{loading ? '...' : toBengaliCurrency(totalBankDeposit)}
               </h3>
-              <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5">সম্মানিত দানবীরগণ অঙ্গীকার করেছেন</p>
+              <p className="text-[10px] text-teal-600 mt-0.5">ব্যাংক অ্যাকাউন্টে সংরক্ষিত</p>
             </div>
-            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center shadow-inner shrink-0">
-              <Award className="w-5 h-5" />
+            <div className="w-10 h-10 sm:w-11 sm:h-11 bg-teal-50 text-teal-700 rounded-xl flex items-center justify-center shadow-inner shrink-0">
+              <Landmark className="w-5 h-5" />
+            </div>
+          </div>
+
+          <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-blue-200 shadow-md flex items-center justify-between bg-blue-50/20">
+            <div>
+              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-blue-700 block">
+                হাতে ক্যাশ ব্যালেন্স
+              </span>
+              <h3 className="text-lg sm:text-xl font-black text-blue-900 mt-0.5">
+                ৳{loading ? '...' : toBengaliCurrency(netBalance)}
+              </h3>
+              <p className="text-[10px] text-blue-600 mt-0.5">বর্তমান পেটি ক্যাশ ব্যালেন্স</p>
+            </div>
+            <div className="w-10 h-10 sm:w-11 sm:h-11 bg-blue-50 text-blue-700 rounded-xl flex items-center justify-center shadow-inner shrink-0">
+              <Wallet className="w-5 h-5" />
             </div>
           </div>
 
         </div>
       </section>
 
-      {/* ৪. দানবীর তালিকা ও পেজিনেশন টেবিল */}
-      <section id="public-dashboard-table" className="max-w-7xl mx-auto px-3 sm:px-4 py-8 sm:py-12 w-full">
+      {/* ৪. সাম্প্রতিক ট্রানজ্যাকশন প্রিভিউ সেকশন */}
+      <section id="finance-summary-section" className="max-w-7xl mx-auto px-3 sm:px-4 pt-8 w-full">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-3.5 sm:p-6">
+          <div className="flex justify-between items-center mb-3.5 border-b border-slate-100 pb-3">
+            <div>
+              <h3 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-1.5">
+                <BookOpen className="w-4 h-4 sm:w-5 sm:h-5 text-blue-700 shrink-0" />
+                সাম্প্রতিক আয়-ব্যয় ট্রানজ্যাকশন
+              </h3>
+              <p className="text-[10px] sm:text-xs text-slate-500 mt-0.5">প্রজেক্টের শেষ ৫টি লেনদেনের সংক্ষিপ্ত বিবরণ</p>
+            </div>
+            <Link 
+              href="/login" 
+              className="text-xs font-semibold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl border border-blue-200 transition"
+            >
+              বিস্তারিত লেজার →
+            </Link>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs min-w-[500px]">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                <tr>
+                  <th className="p-2.5">তারিখ</th>
+                  <th className="p-2.5">খাত / বিবরণ</th>
+                  <th className="p-2.5">গ্রহীতা / উৎস</th>
+                  <th className="p-2.5 text-center">মাধ্যম</th>
+                  <th className="p-2.5 text-right">পরিমাণ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {vouchers.slice(0, 5).map((v, i) => (
+                  <tr key={i} className="hover:bg-slate-50">
+                    <td className="p-2.5 font-medium whitespace-nowrap text-slate-600">
+                      <span style={bnSafeStyle}>{toBengaliNumber(v.date)}</span>
+                    </td>
+                    <td className="p-2.5 font-semibold text-slate-800">
+                      {v.head} {v.isDonorEntry && <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1 py-0.5 rounded">ডোনার পেজ</span>}
+                    </td>
+                    <td className="p-2.5 text-slate-600">{v.recipient || '—'}</td>
+                    <td className="p-2.5 text-center">
+                      <span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] font-medium border border-slate-200">
+                        {v.paymentMethod || 'ক্যাশ'}
+                      </span>
+                    </td>
+                    <td className={`p-2.5 text-right font-bold whitespace-nowrap ${v.voucherType === 'Credit' ? 'text-emerald-700' : 'text-rose-600'}`}>
+                      {v.voucherType === 'Credit' ? '+' : '-'}৳<span style={bnSafeStyle}>{toBengaliCurrency(v.amount)}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      {/* ৫. দানবীর তালিকা ও পেজিনেশন টেবিল */}
+      <section id="public-dashboard-table" className="max-w-7xl mx-auto px-3 sm:px-4 py-8 w-full">
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-3.5 sm:p-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 border-b border-slate-100 pb-3.5">
             <div>
@@ -326,14 +462,7 @@ export default function HomePage() {
                             {rawDate ? (
                               <div className="inline-flex items-center justify-center gap-1 text-[11px] text-slate-700 font-medium">
                                 <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
-                                <span 
-                                  style={{ 
-                                    fontFamily: "'Segoe UI', 'Noto Sans Bengali', sans-serif",
-                                    display: 'inline-block',
-                                    lineHeight: '1.6',
-                                    paddingBottom: '3px'
-                                  }}
-                                >
+                                <span style={bnSafeStyle}>
                                   {formatBengaliDate(rawDate)}
                                 </span>
                               </div>
@@ -394,7 +523,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ৫. অনুদান পাঠানোর নিয়মাবলী ও ব্যাংক একাউন্ট */}
+      {/* ৬. অনুদান পাঠানোর নিয়মাবলী ও ব্যাংক একাউন্ট */}
       <section id="donation-details" className="bg-emerald-50/60 border-t border-emerald-100 py-8 px-3 sm:px-4">
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-5">
@@ -448,7 +577,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ৬. ফুটার */}
+      {/* ৭. ফুটার */}
       <footer className="bg-slate-900 text-slate-300 py-6 px-4 mt-auto">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-2 text-[11px] text-center md:text-left">
           <div>
