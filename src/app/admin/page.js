@@ -10,8 +10,7 @@ import {
   HandCoins, 
   Wallet, 
   LogOut, 
-  ArrowUpRight,
-  ShieldAlert
+  ArrowUpRight
 } from 'lucide-react';
 
 // ইংরেজি সংখ্যাকে বাংলায় রূপান্তর
@@ -75,7 +74,6 @@ export default function AdminHub() {
 
   // ফোকাসড মূল মডিউল
   const coreModules = [
-    
     {
       id: 'finance',
       title: 'ফিন্যান্স ও অ্যাকাউন্টস',
@@ -100,7 +98,6 @@ export default function AdminHub() {
       statLabel: 'মোট সংগৃহীত অনুদান',
       statValue: `৳${toBengaliCurrency(donorStats.totalCollected)} (${toBengaliNumber(donorStats.totalDonors)} জন দাতা)`
     },
-    // AdminHub পেজের coreModules এ এটি যুক্ত হবে:
     {
       id: 'materials',
       title: 'নির্মাণ সামগ্রীর মূল্য তালিকা',
@@ -120,19 +117,21 @@ export default function AdminHub() {
       {/* টপবার */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 bg-emerald-700 text-white rounded-xl flex items-center justify-center shadow-xs">
+          
+          {/* এই লিংকে ক্লিক করলে হোমপেইজে চলে যাবে */}
+          <Link href="/" className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition group">
+            <div className="w-10 h-10 bg-emerald-700 text-white rounded-xl flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
               <Building2 className="w-5 h-5" />
             </div>
             <div>
               <p className="text-[10px] text-emerald-800 font-bold uppercase tracking-wider leading-none">
                 জিলা স্কুল রোড জামে মসজিদ ও মাদ্রাসা অধীন
               </p>
-              <h1 className="text-sm sm:text-base font-extrabold text-slate-900 leading-tight mt-0.5">
+              <h1 className="text-sm sm:text-base font-extrabold text-slate-900 leading-tight mt-0.5 group-hover:text-emerald-700 transition-colors">
                 আব্দুল হাকিম ওয়াক্‌ফ এস্টেট অ্যাকাউন্টস পোর্টাল
               </h1>
             </div>
-          </div>
+          </Link>
 
           <button 
             onClick={() => signOut(auth)}
@@ -144,9 +143,8 @@ export default function AdminHub() {
         </div>
       </header>
 
-      {/* মূল কন্টেন্ট (ফোকাসড অনলি ফিন্যান্স ও চাঁদা আদায়) */}
+      {/* মূল কন্টেন্ট */}
       <main className="max-w-5xl mx-auto px-4 mt-8">
-        
         <div className="mb-6">
           <h2 className="text-lg sm:text-xl font-black text-slate-900">স্বাগতম, অ্যাডমিন প্যানেল</h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
@@ -154,7 +152,7 @@ export default function AdminHub() {
           </p>
         </div>
 
-        {/* মডিউল কার্ডসমূহ (বড় ও আকর্ষণীয় কার্ড লেআউট) */}
+        {/* মডিউল কার্ডসমূহ */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {coreModules.map((mod) => {
             const Icon = mod.icon;

@@ -1,12 +1,14 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 import { 
   Building2, 
   HeartHandshake, 
   LogIn, 
+  LayoutDashboard,
   CreditCard, 
   Phone, 
   Users, 
@@ -86,7 +88,15 @@ export default function HomePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [showMaterialsModal, setShowMaterialsModal] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const itemsPerPage = 10;
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setIsLoggedIn(!!user);
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     async function loadPublicData() {
@@ -130,11 +140,9 @@ export default function HomePage() {
 
         setVouchers(combinedVouchers);
 
-        // আপনার building_materials কালেকশন থেকে আসল ডাটা ফেচ করা হচ্ছে
         const materialsSnap = await getDocs(collection(db, 'building_materials'));
         const materialsList = materialsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         
-        // সর্বশেষ আপডেটের সময় অনুযায়ী সাজানো
         materialsList.sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
         
         setMaterials(materialsList);
@@ -213,11 +221,11 @@ export default function HomePage() {
           </div>
 
           <Link
-            href="/login"
+            href={isLoggedIn ? "/admin" : "/login"}
             className="flex items-center gap-1 bg-emerald-800 hover:bg-emerald-900 text-white text-[11px] sm:text-xs font-semibold px-2.5 py-1.5 rounded-lg transition shadow-xs shrink-0 cursor-pointer"
           >
-            <LogIn className="w-3.5 h-3.5" />
-            <span>লগইন</span>
+            {isLoggedIn ? <LayoutDashboard className="w-3.5 h-3.5" /> : <LogIn className="w-3.5 h-3.5" />}
+            <span>{isLoggedIn ? 'ড্যাশবোর্ড' : 'লগইন'}</span>
           </Link>
         </div>
       </header>
@@ -232,7 +240,7 @@ export default function HomePage() {
             ওয়াক্‌ফ তহবিল ও আর্থিক স্বচ্ছতা পোর্টাল
           </h2>
           <p className="text-xs sm:text-sm md:text-base text-emerald-100/90 leading-relaxed max-w-2xl mx-auto mb-5 px-1">
-            জেলা স্কুল রোড জামে মসজিদ ও হাফিজিয়া মাদ্রাসা এর অধীন <strong>আব্দুল হাকিম ওয়াক্‌ফ এস্টেট</strong> ভবন নির্মাণ কাজের সার্বিক আয়, ব্যয় ও দানবীরদের অবদান স্বচ্ছতার সাথে সংরক্ষিত।
+            জেলা স্কুল রোড জামে মসজিদ ও হাফিজিয়া মাদ্রাসা এর অধীন <strong>আব্দুল হাকিম ওয়াক্‌ফ এস্টেট</strong> ভবন নির্মাণ কাজের সার্বিক আয়, ব্যয় ও দানবীরদের অবদান স্বচ্ছতার সাথে সংরক্ষিত।
           </p>
           
           <div className="flex flex-wrap justify-center gap-2">
@@ -272,7 +280,7 @@ export default function HomePage() {
               <h3 className="text-lg sm:text-xl font-black text-slate-900 mt-0.5">
                 ৳{loading ? '...' : toBengaliCurrency(totalCashIn)}
               </h3>
-              <p className="text-[10px] text-slate-400 mt-0.5">ডোনার ও অন্যান্য ফান্ড আয়</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">ডোনার ও অন্যান্য ফান্ড আয়</p>
             </div>
             <div className="w-10 h-10 sm:w-11 sm:h-11 bg-emerald-50 text-emerald-700 rounded-xl flex items-center justify-center shadow-inner shrink-0">
               <ArrowDownLeft className="w-5 h-5" />
@@ -333,12 +341,12 @@ export default function HomePage() {
             <div>
               <h3 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-1.5">
                 <BookOpen className="w-4 h-4 sm:w-5 sm:h-5 text-blue-700 shrink-0" />
-                সাম্প্রতিক আয়-ব্যয় ট্রানজ্যাকশন
+                সাম্প্রতিক আয়-ব্যয় ট্রানজ্যাকশন
               </h3>
               <p className="text-[10px] sm:text-xs text-slate-500 mt-0.5">প্রজেক্টের শেষ ৫টি লেনদেনের সংক্ষিপ্ত বিবরণ</p>
             </div>
             <Link 
-              href="/login" 
+              href={isLoggedIn ? "/admin/finance" : "/login"}
               className="text-xs font-semibold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl border border-blue-200 transition"
             >
               বিস্তারিত লেজার →
@@ -533,7 +541,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* পপ-আপ উইন্ডো: মোহতামীম সাহেবের বক্তব্যের জন্য নির্মাণ সামগ্রীর মূল্য তালিকা */}
       {showMaterialsModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 my-auto relative animate-in fade-in zoom-in duration-200">
@@ -545,7 +552,7 @@ export default function HomePage() {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900 leading-tight">
-                    নির্মাণ সামগ্রীর বর্তমান বাজারদর (বক্তব্যের সহায়ক তথ্য)
+                    নির্মাণ সামগ্রীর বর্তমান বাজারদর (বক্তব্যের সহায়ক তথ্য)
                   </h3>
                   <p className="text-xs text-slate-500">আব্দুল হাকিম ওয়াক্‌ফ এস্টেট নির্মাণ প্রকল্প</p>
                 </div>
@@ -559,7 +566,7 @@ export default function HomePage() {
             </div>
 
             <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3 mb-4 text-xs text-amber-900 leading-relaxed">
-              <strong>জনগণের উদ্দেশ্যে বা ওয়াজ মাহফিলে বক্তব্যের সময়:</strong> মোহতামীম সাহেব এই তালিকা থেকে বর্তমান রড, সিমেন্ট ও ইটের বাজারদর উল্লেখ করে ওয়াক্‌ফ তহবিলের গুরুত্ব ও স্বচ্ছতা তুলে ধরতে পারবেন।
+              <strong>জনগণের উদ্দেশ্যে বা ওয়াজ মাহফিলে বক্তব্যের সময়:</strong> মোহতামীম সাহেব এই তালিকা থেকে বর্তমান রড, সিমেন্ট ও ইটের বাজারদর উল্লেখ করে ওয়াক্‌ফ তহবিলের গুরুত্ব ও স্বচ্ছতা তুলে ধরতে পারবেন।
             </div>
 
             <div className="max-h-72 overflow-y-auto border rounded-xl border-slate-200">
@@ -575,7 +582,7 @@ export default function HomePage() {
               <tbody className="divide-y divide-slate-100">
                 {materials.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="p-5 text-center text-slate-400">কোনো তথ্য পাওয়া যায়নি।</td>
+                    <td colSpan={4} className="p-5 text-center text-slate-400">কোনো তথ্য পাওয়া যায়নি।</td>
                   </tr>
                 ) : (
                   materials.map((mat, i) => (
@@ -664,7 +671,7 @@ export default function HomePage() {
                     <span className="font-bold text-amber-800 block text-[10px]">নগদ (সেন্ড মানি)</span>
                     <span className="font-mono font-bold text-slate-800 text-xs">০১৭১xxxxxxx</span>
                   </div>
-                  <span className="text-[9px] bg-white px-1.5 py-0.5 rounded border border-amber-200 font-semibold text-amber-800">পার্সোনাল</span>
+                  <span className="text-[9px] bg-white px-1.5 py-0.5 rounded border border-amber-800 font-semibold text-amber-800">পার্সোনাল</span>
                 </div>
               </div>
             </div>
@@ -679,8 +686,8 @@ export default function HomePage() {
             <p className="text-slate-400 mt-0.5">জেলা স্কুল রোড জামে মসজিদ ও হাফিজিয়া মাদ্রাসা কমপ্লেক্স, ময়মনসিংহ।</p>
           </div>
           <div className="flex items-center gap-3">
-            <Link href="/login" className="text-emerald-400 hover:text-emerald-300 font-medium">
-              অ্যাডমিন লগইন
+            <Link href={isLoggedIn ? "/admin" : "/login"} className="text-emerald-400 hover:text-emerald-300 font-medium transition cursor-pointer">
+              {isLoggedIn ? 'অ্যাডমিন ড্যাশবোর্ড' : 'অ্যাডমিন লগইন'}
             </Link>
             <span className="text-slate-600">|</span>
             <span className="text-slate-500">সর্বস্বত্ব সংরক্ষিত © {toBengaliNumber(new Date().getFullYear())}</span>
