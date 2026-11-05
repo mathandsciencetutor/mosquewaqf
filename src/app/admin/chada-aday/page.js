@@ -27,7 +27,10 @@ import {
   X, 
   Award,
   RotateCcw,
-  Calendar
+  Calendar,
+  Edit,
+  Trash2,
+  Save
 } from 'lucide-react';
 
 // ইংরেজি সংখ্যাকে বাংলা সংখ্যায় রূপান্তর
@@ -113,6 +116,10 @@ export default function AdminDashboard() {
   const [showCategoryPrintModal, setShowCategoryPrintModal] = useState(false);
   const [printCategory, setPrintCategory] = useState('ALL');
   const [activePrintView, setActivePrintView] = useState(null);
+
+  // এডিট ভাউচারের স্টেট
+  const [editingInstallmentIndex, setEditingInstallmentIndex] = useState(null);
+  const [editInstallmentData, setEditInstallmentData] = useState({ amount: '', date: '', note: '' });
 
   const router = useRouter();
 
@@ -268,6 +275,90 @@ export default function AdminDashboard() {
       fetchDonors();
     } catch (err) {
       console.error('কিস্তি আপডেট ত্রুটি:', err);
+    }
+  };
+
+  // ভাউচার এডিট করার ফাংশন
+  const handleSaveEditInstallment = async (donor, index) => {
+    try {
+      const newAmount = Number(editInstallmentData.amount) || 0;
+      const oldAmount = Number(donor.installments[index].amount) || 0;
+      const amountDiff = newAmount - oldAmount;
+      
+      const updatedInstallments = [...donor.installments];
+      updatedInstallments[index] = {
+        ...updatedInstallments[index],
+        amount: newAmount,
+        date: editInstallmentData.date,
+        note: editInstallmentData.note
+      };
+
+      let newPaidTotal = (donor.paidAmount || 0) + amountDiff;
+      if (newPaidTotal < 0) newPaidTotal = 0;
+
+      let newCategory = donor.category;
+      if (donor.category !== 'OneTimeCash') {
+         if (newPaidTotal >= donor.pledgedAmount && donor.pledgedAmount > 0) {
+             newCategory = 'Paid';
+         } else if (newPaidTotal > 0) {
+             newCategory = 'Confirmed';
+         } else {
+             newCategory = donor.originalCategory || 'Confirmed';
+         }
+      }
+
+      const donorRef = doc(db, 'donors', donor.id);
+      await updateDoc(donorRef, {
+        installments: updatedInstallments,
+        paidAmount: newPaidTotal,
+        category: newCategory
+      });
+
+      const updatedDonor = { ...donor, installments: updatedInstallments, paidAmount: newPaidTotal, category: newCategory };
+      setHistoryDonor(updatedDonor);
+      setEditingInstallmentIndex(null);
+      fetchDonors();
+    } catch (err) {
+      console.error('এডিট সেভ ত্রুটি:', err);
+    }
+  };
+
+  // ভাউচার ডিলিট করার ফাংশন
+  const handleDeleteInstallment = async (donor, index) => {
+    if (!window.confirm('আপনি কি নিশ্চিত যে এই কিস্তিটি মুছে ফেলতে চান?')) return;
+    try {
+      const updatedInstallments = [...donor.installments];
+      const removedAmount = Number(updatedInstallments[index].amount) || 0;
+      updatedInstallments.splice(index, 1);
+
+      let newPaidTotal = (donor.paidAmount || 0) - removedAmount;
+      if (newPaidTotal < 0) newPaidTotal = 0;
+
+      let newCategory = donor.originalCategory || donor.category;
+      if (donor.category !== 'OneTimeCash') {
+         if (newPaidTotal >= donor.pledgedAmount && donor.pledgedAmount > 0) {
+             newCategory = 'Paid';
+         } else if (newPaidTotal > 0) {
+             newCategory = 'Confirmed';
+         } else if (newPaidTotal === 0 && donor.originalCategory === 'Prospective') {
+             newCategory = 'Prospective';
+         } else {
+             newCategory = 'Confirmed';
+         }
+      }
+
+      const donorRef = doc(db, 'donors', donor.id);
+      await updateDoc(donorRef, {
+        installments: updatedInstallments,
+        paidAmount: newPaidTotal,
+        category: newCategory
+      });
+
+      const updatedDonor = { ...donor, installments: updatedInstallments, paidAmount: newPaidTotal, category: newCategory };
+      setHistoryDonor(updatedDonor);
+      fetchDonors();
+    } catch (err) {
+      console.error('ডিলিট ত্রুটি:', err);
     }
   };
 
@@ -1137,7 +1228,6 @@ export default function AdminDashboard() {
                     <td className="p-1.5 border-r border-slate-400 font-bold">{donor.name}</td>
                     <td className="p-1.5 border-r border-slate-400"><span style={bnSafeStyle}>{toBengaliNumber(donor.phone || '—')}</span></td>
                     <td className="p-1.5 border-r border-slate-400">{donor.address || '—'}</td>
-                    {/* টেবিলের তারিখ কলাম */}
                     <td className="p-1.5 border-r border-slate-400 text-center font-medium">
                       <span style={bnSafeStyle}>{formatBengaliDate(displayDate)}</span>
                     </td>
@@ -1186,7 +1276,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* স্ক্রিনে হিস্ট্রি দেখার পপআপ */}
+      {/* স্ক্রিনে হিস্ট্রি দেখার পপআপ (এডিট/ডিলিট সহ) */}
       {historyDonor && activePrintView === 'history_modal' && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 print:hidden">
           <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200">
@@ -1199,6 +1289,7 @@ export default function AdminDashboard() {
                 onClick={() => {
                   setHistoryDonor(null);
                   setActivePrintView(null);
+                  setEditingInstallmentIndex(null);
                 }} 
                 className="text-slate-400 hover:text-slate-600 cursor-pointer"
               >
@@ -1206,22 +1297,90 @@ export default function AdminDashboard() {
               </button>
             </div>
 
-            <div className="my-3 max-h-60 overflow-y-auto space-y-2 pr-1">
+            <div className="my-3 max-h-72 overflow-y-auto space-y-2 pr-1">
               {!historyDonor.installments || historyDonor.installments.length === 0 ? (
                 <p className="text-center text-xs text-slate-400 py-6">কোনো কিস্তি জমার হিস্ট্রি নেই।</p>
               ) : (
                 historyDonor.installments.map((item, index) => (
-                  <div key={index} className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex justify-between items-center text-xs">
-                    <div>
-                      <p className="font-semibold text-slate-800"><span style={bnSafeStyle}>{toBengaliNumber(item.note || 'কিস্তি আদায়')}</span></p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">
-                        তারিখ: <span style={bnSafeStyle}>{item.date ? toBengaliNumber(new Date(item.date).toLocaleDateString('bn-BD', { year: 'numeric', month: 'short', day: 'numeric' })) : 'N/A'}</span>
-                      </p>
+                  editingInstallmentIndex === index ? (
+                    <div key={index} className="p-3 bg-blue-50 rounded-xl border border-blue-200 flex flex-col gap-2 text-xs">
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-500">পরিমাণ (৳)</label>
+                        <input 
+                          type="number" 
+                          value={editInstallmentData.amount} 
+                          onChange={e => setEditInstallmentData({...editInstallmentData, amount: e.target.value})} 
+                          className="w-full px-2 py-1.5 border border-blue-200 rounded outline-none bg-white font-bold" 
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] font-semibold text-slate-500">তারিখ</label>
+                          <input 
+                            type="date" 
+                            value={editInstallmentData.date} 
+                            onChange={e => setEditInstallmentData({...editInstallmentData, date: e.target.value})} 
+                            className="w-full px-2 py-1.5 border border-blue-200 rounded outline-none bg-white" 
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-slate-500">বিবরণ</label>
+                          <input 
+                            type="text" 
+                            value={editInstallmentData.note} 
+                            onChange={e => setEditInstallmentData({...editInstallmentData, note: e.target.value})} 
+                            className="w-full px-2 py-1.5 border border-blue-200 rounded outline-none bg-white" 
+                          />
+                        </div>
+                      </div>
+                      <div className="flex gap-2 justify-end mt-1 pt-2 border-t border-blue-100">
+                        <button 
+                          onClick={() => setEditingInstallmentIndex(null)} 
+                          className="px-3 py-1.5 text-slate-600 hover:bg-slate-200 border border-slate-300 rounded font-semibold transition cursor-pointer"
+                        >
+                          বাতিল
+                        </button>
+                        <button 
+                          onClick={() => handleSaveEditInstallment(historyDonor, index)} 
+                          className="px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-700 rounded font-semibold transition cursor-pointer flex items-center gap-1 shadow-xs"
+                        >
+                          <Save className="w-3 h-3" /> সেভ করুন
+                        </button>
+                      </div>
                     </div>
-                    <span className="font-bold text-emerald-700 text-xs sm:text-sm">
-                      +৳<span style={bnSafeStyle}>{toBengaliCurrency(item.amount)}</span>
-                    </span>
-                  </div>
+                  ) : (
+                    <div key={index} className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col text-xs transition hover:border-slate-300">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="font-semibold text-slate-800"><span style={bnSafeStyle}>{toBengaliNumber(item.note || 'কিস্তি আদায়')}</span></p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            তারিখ: <span style={bnSafeStyle}>{item.date ? toBengaliNumber(new Date(item.date).toLocaleDateString('bn-BD', { year: 'numeric', month: 'short', day: 'numeric' })) : 'N/A'}</span>
+                          </p>
+                        </div>
+                        <span className="font-bold text-emerald-700 text-xs sm:text-sm">
+                          +৳<span style={bnSafeStyle}>{toBengaliCurrency(item.amount)}</span>
+                        </span>
+                      </div>
+                      
+                      <div className="flex justify-end gap-3 mt-2 pt-2 border-t border-slate-100">
+                        <button 
+                          onClick={() => {
+                            setEditingInstallmentIndex(index);
+                            setEditInstallmentData({ amount: item.amount, date: item.date, note: item.note || '' });
+                          }} 
+                          className="text-blue-600 hover:text-blue-800 flex items-center gap-1 font-semibold cursor-pointer transition bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded"
+                        >
+                          <Edit className="w-3 h-3" /> এডিট
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteInstallment(historyDonor, index)}
+                          className="text-rose-600 hover:text-rose-800 flex items-center gap-1 font-semibold cursor-pointer transition bg-rose-50 hover:bg-rose-100 px-2 py-1 rounded"
+                        >
+                          <Trash2 className="w-3 h-3" /> ডিলিট
+                        </button>
+                      </div>
+                    </div>
+                  )
                 ))
               )}
             </div>
